@@ -95,15 +95,22 @@ class TestIO(unittest.TestCase):
 
 
 class TestConcurrencyAndConfig(unittest.TestCase):
-    """Test multi-threaded configuration and worker sizing."""
+    """Test multi-threaded configuration and CPU-based worker sizing."""
 
-    def test_default_workers_config(self):
-        """Default max_workers should be set to 5."""
+    def test_default_workers_calculated_from_cpu(self):
+        """Default workers should scale with system CPU cores/threads within [2, 32]."""
+        from src.config import get_default_workers
+        expected = max(2, min(32, os.cpu_count() or 4))
+        self.assertEqual(get_default_workers(), expected)
+
+    def test_scraper_config_uses_cpu_default(self):
+        """ScraperConfig should default max_workers to get_default_workers()."""
+        from src.config import get_default_workers
         cfg = ScraperConfig()
-        self.assertEqual(cfg.max_workers, 5)
+        self.assertEqual(cfg.max_workers, get_default_workers())
 
     def test_custom_workers_config(self):
-        """Custom workers parameter should be stored in ScraperConfig."""
+        """Custom workers parameter should override CPU defaults in ScraperConfig."""
         cfg = ScraperConfig(max_workers=10)
         self.assertEqual(cfg.max_workers, 10)
 

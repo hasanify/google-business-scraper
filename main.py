@@ -9,12 +9,13 @@ Usage:
 import argparse
 import sys
 
-from src.config import ScraperConfig
+from src.config import ScraperConfig, get_default_workers
 from src.scraper import BusinessScraper
 
 
 def parse_args() -> ScraperConfig:
     """Parse command line arguments and return ScraperConfig."""
+    default_workers = get_default_workers()
     parser = argparse.ArgumentParser(
         description="Scrape Google Places businesses within a radius around coordinates using multi-threading."
     )
@@ -39,8 +40,8 @@ def parse_args() -> ScraperConfig:
     parser.add_argument(
         "--workers",
         type=int,
-        default=5,
-        help="Number of concurrent worker threads (one location per thread, default: 5)",
+        default=None,
+        help=f"Number of concurrent worker threads (default: auto-detected from CPU cores/threads: {default_workers})",
     )
     args = parser.parse_args()
 

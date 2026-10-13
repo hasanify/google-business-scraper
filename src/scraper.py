@@ -123,12 +123,13 @@ class BusinessScraper:
             return
 
         total_locations = len(locations)
-        num_workers = min(total_locations, max(1, self.config.max_workers))
+        cpu_threads = os.cpu_count() or 1
+        num_workers = min(total_locations, max(1, self.config.max_workers or 1))
 
         print("=" * 65, flush=True)
         print(f"Loaded {total_locations} locations from {self.config.locations_file}.", flush=True)
         print(f"Configured Radius : {self.config.radius_km} km per location.", flush=True)
-        print(f"Concurrency       : {num_workers} parallel worker thread(s).", flush=True)
+        print(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).", flush=True)
         print("=" * 65, flush=True)
 
         # Pre-flight check with the first location

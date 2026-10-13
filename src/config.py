@@ -1,7 +1,7 @@
 """Configuration management for the Google Places Business Scraper.
 
 Handles environment variable loading (with built-in fallback for .env files),
-application constants, and runtime configuration dataclasses.
+CPU core/thread detection for concurrency, application constants, and runtime configuration.
 """
 
 from dataclasses import dataclass
@@ -40,6 +40,16 @@ def load_dotenv(env_path: Optional[Path] = None) -> None:
 load_dotenv()
 
 
+def get_default_workers() -> int:
+    """Calculate default worker thread count based on CPU cores and hardware threads.
+
+    Uses os.cpu_count() to query available logical processors (hardware threads),
+    ensuring at least 2 workers and an upper safety threshold of 32.
+    """
+    cpu_threads = os.cpu_count() or 4
+    return max(2, min(32, cpu_threads))
+
+
 @dataclass
 class ScraperConfig:
     """Runtime configuration container for POI scraping."""
@@ -53,12 +63,15 @@ class ScraperConfig:
     request_timeout: float = 15.0
     inter_query_delay: float = 0.2
     pagination_delay: float = 1.0
-    max_workers: int = 5
+    max_workers: Optional[int] = None
 
     def __post_init__(self) -> None:
-        """Resolve API key from environment if not explicitly provided."""
+        """Resolve API key and dynamic CPU-based worker count if not explicitly set."""
         if not self.api_key:
             self.api_key = os.environ.get("GOOGLE_API_KEY", "")
+
+        if self.max_workers is None or self.max_workers <= 0:
+            self.max_workers = get_default_workers()
 
 
 # Global default configuration instance
