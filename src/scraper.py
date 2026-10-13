@@ -2,13 +2,15 @@
 
 Coordinates the loading of target locations, spatial querying of Google Places,
 result deduplication, geodesic distance verification, multi-threaded parallel execution,
-and streaming CSV export.
+graceful interruption (Ctrl+C / SIGINT) handling, and streaming CSV export.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import os
 from pathlib import Path
+import signal
+import threading
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -36,6 +38,7 @@ class BusinessScraper:
             timeout=self.config.request_timeout,
             page_delay=self.config.pagination_delay,
         )
+        self.stop_event = threading.Event()
 
     def process_single_location(
         self,
@@ -74,12 +77,27 @@ class BusinessScraper:
             f.flush()
 
             for group, types in KEYWORD_GROUPS.items():
+                if self.stop_event.is_set():
+                    break
+
                 print(f"{tag} Fetching category: {group}", flush=True)
                 for place_type in types:
+                    if self.stop_event.is_set():
+                        break
+
                     places = self.client.search_text_paginated(
-                        place_type, lat, lng, self.config.radius_km, seen
+                        place_type,
+                        lat,
+                        lng,
+                        self.config.radius_km,
+                        seen,
+                        stop_event=self.stop_event,
                     )
+
                     for place in places:
+                        if self.stop_event.is_set():
+                            break
+
                         pid = place.get("id")
                         plat = place["location"]["latitude"]
                         plng = place["location"]["longitude"]
@@ -108,13 +126,19 @@ class BusinessScraper:
                             ),
                         })
                     f.flush()
-                    time.sleep(self.config.inter_query_delay)
 
-        print(f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}", flush=True)
+                    if self.stop_event.wait(self.config.inter_query_delay):
+                        break
+
+        if self.stop_event.is_set():
+            print(f"\n[!] {tag} Interrupted early. Flushed {sno} places to {output_file}", flush=True)
+        else:
+            print(f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}", flush=True)
+
         return sno, output_file
 
     def run(self) -> None:
-        """Execute the scraping pipeline across all locations with multi-threaded concurrency."""
+        """Execute the scraping pipeline across all locations with graceful interrupt handling."""
         ensure_output_dir(self.config.output_dir)
 
         locations = load_locations(self.config.locations_file)
@@ -130,6 +154,7 @@ class BusinessScraper:
         print(f"Loaded {total_locations} locations from {self.config.locations_file}.", flush=True)
         print(f"Configured Radius : {self.config.radius_km} km per location.", flush=True)
         print(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).", flush=True)
+        print("Interrupt Guide   : Press Ctrl+C at any time for graceful shutdown.", flush=True)
         print("=" * 65, flush=True)
 
         # Pre-flight check with the first location
@@ -137,39 +162,89 @@ class BusinessScraper:
             print("Aborting run due to API authorization/billing error.", flush=True)
             return
 
-        print(f"Starting parallel scrape across {num_workers} thread(s)...\n", flush=True)
+        print(f"Starting scrape across {num_workers} thread(s)...\n", flush=True)
 
         summary: List[Tuple[int, str, int, str]] = []
 
-        if num_workers == 1:
-            for i, loc in enumerate(locations, start=1):
-                try:
-                    count, outfile = self.process_single_location(i, loc, total_locations)
-                    summary.append((i, loc["name"], count, outfile))
-                except Exception as exc:
-                    print(f"[ERROR] Location [{i}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
-        else:
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                future_to_loc = {
-                    executor.submit(
-                        self.process_single_location, i, loc, total_locations
-                    ): (i, loc)
-                    for i, loc in enumerate(locations, start=1)
-                }
+        # Graceful signal handler setup
+        def _handle_interrupt(signum: int, frame: Any) -> None:
+            if not self.stop_event.is_set():
+                print("\n\n[!] Interrupt signal received (Ctrl+C). Initiating graceful shutdown...", flush=True)
+                self.stop_event.set()
 
-                for future in as_completed(future_to_loc):
-                    idx, loc = future_to_loc[future]
+        original_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, _handle_interrupt)
+        has_sigterm = hasattr(signal, "SIGTERM")
+        original_sigterm = signal.getsignal(signal.SIGTERM) if has_sigterm else None
+        if has_sigterm:
+            signal.signal(signal.SIGTERM, _handle_interrupt)
+
+        try:
+            if num_workers == 1:
+                for i, loc in enumerate(locations, start=1):
+                    if self.stop_event.is_set():
+                        break
                     try:
-                        count, outfile = future.result()
-                        summary.append((idx, loc["name"], count, outfile))
+                        count, outfile = self.process_single_location(i, loc, total_locations)
+                        if not self.stop_event.is_set():
+                            summary.append((i, loc["name"], count, outfile))
                     except Exception as exc:
-                        print(f"[ERROR] Location [{idx}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+                        if not self.stop_event.is_set():
+                            print(f"[ERROR] Location [{i}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+            else:
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    future_to_loc = {
+                        executor.submit(
+                            self.process_single_location, i, loc, total_locations
+                        ): (i, loc)
+                        for i, loc in enumerate(locations, start=1)
+                    }
+
+                    try:
+                        for future in as_completed(future_to_loc):
+                            idx, loc = future_to_loc[future]
+                            try:
+                                count, outfile = future.result()
+                                if not self.stop_event.is_set():
+                                    summary.append((idx, loc["name"], count, outfile))
+                            except Exception as exc:
+                                if not self.stop_event.is_set():
+                                    print(f"[ERROR] Location [{idx}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+
+                            if self.stop_event.is_set():
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                break
+                    except KeyboardInterrupt:
+                        print("\n[!] Ctrl+C detected. Cancelling remaining threads...", flush=True)
+                        self.stop_event.set()
+                        executor.shutdown(wait=False, cancel_futures=True)
+        except KeyboardInterrupt:
+            print("\n[!] Ctrl+C caught during execution.", flush=True)
+            self.stop_event.set()
+        finally:
+            # Restore initial signal handlers
+            signal.signal(signal.SIGINT, original_sigint)
+            if has_sigterm and original_sigterm:
+                signal.signal(signal.SIGTERM, original_sigterm)
 
         # Sort summary by original location index
         summary.sort(key=lambda item: item[0])
 
-        print("\n" + "=" * 70, flush=True)
-        print("ALL LOCATIONS COMPLETED", flush=True)
-        print("=" * 70, flush=True)
-        for idx, name, count, outfile in summary:
-            print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)
+        if self.stop_event.is_set():
+            print("\n" + "=" * 70, flush=True)
+            print("SCRAPER STOPPED BY USER (GRACEFUL EXIT COMPLETE)", flush=True)
+            print("=" * 70, flush=True)
+            if summary:
+                print(f"Fully completed {len(summary)} of {total_locations} locations before stop:", flush=True)
+                for idx, name, count, outfile in summary:
+                    print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)
+            else:
+                print("Interrupted before any single location finished all 150 categories.", flush=True)
+            print("All CSV files were cleanly flushed to disk. No corrupted data.", flush=True)
+            print("=" * 70 + "\n", flush=True)
+        else:
+            print("\n" + "=" * 70, flush=True)
+            print("ALL LOCATIONS COMPLETED", flush=True)
+            print("=" * 70, flush=True)
+            for idx, name, count, outfile in summary:
+                print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)

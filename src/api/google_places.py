@@ -5,6 +5,7 @@ authentication headers, field masks, spatial restriction bounding boxes, paginat
 distance filtering, and pre-flight connectivity verification.
 """
 
+import threading
 import time
 from typing import Any, Dict, List, Optional, Set
 
@@ -112,6 +113,7 @@ class GooglePlacesClient:
         lng: float,
         radius_km: float,
         seen: Set[str],
+        stop_event: Optional[threading.Event] = None,
     ) -> List[Dict[str, Any]]:
         """Search Google Places for a specific type within a radius, handling pagination and distance filter.
 
@@ -121,6 +123,7 @@ class GooglePlacesClient:
             lng: Center longitude.
             radius_km: Maximum radial distance in kilometers.
             seen: Set of already observed place IDs for deduplication.
+            stop_event: Optional threading.Event to signal immediate cancellation.
 
         Returns:
             List of matching operational Place dictionaries within radius_km.
@@ -139,9 +142,16 @@ class GooglePlacesClient:
         page_token: Optional[str] = None
 
         while True:
+            if stop_event and stop_event.is_set():
+                break
+
             if page_token:
                 payload["pageToken"] = page_token
-                time.sleep(self.page_delay)
+                if stop_event:
+                    if stop_event.wait(self.page_delay):
+                        break
+                else:
+                    time.sleep(self.page_delay)
 
             try:
                 response = requests.post(
@@ -168,6 +178,8 @@ class GooglePlacesClient:
         # Filter places by operational status, validity, and precise ellipsoidal distance
         places: List[Dict[str, Any]] = []
         for place in all_places:
+            if stop_event and stop_event.is_set():
+                break
             pid = place.get("id")
             if not pid or pid in seen:
                 continue

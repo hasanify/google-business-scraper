@@ -55,9 +55,13 @@ def parse_args() -> ScraperConfig:
 
 def main() -> None:
     """Run scraper with command-line or default configuration."""
-    config = parse_args()
-    scraper = BusinessScraper(config)
-    scraper.run()
+    try:
+        config = parse_args()
+        scraper = BusinessScraper(config)
+        scraper.run()
+    except KeyboardInterrupt:
+        print("\nScraper interrupted by user.", flush=True)
+        sys.exit(130)
 
 
 if __name__ == "__main__":

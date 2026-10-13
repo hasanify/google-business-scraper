@@ -120,6 +120,24 @@ class TestConcurrencyAndConfig(unittest.TestCase):
         scraper = BusinessScraper(cfg)
         self.assertEqual(scraper.config.max_workers, 8)
 
+    def test_stop_event_initialized(self):
+        """BusinessScraper should have a threading.Event stop_event initialized."""
+        import threading
+        scraper = BusinessScraper()
+        self.assertIsInstance(scraper.stop_event, threading.Event)
+        self.assertFalse(scraper.stop_event.is_set())
+
+    def test_process_location_aborts_immediately_if_stopped(self):
+        """process_single_location should abort immediately if stop_event is already set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = ScraperConfig(output_dir=tmpdir)
+            scraper = BusinessScraper(cfg)
+            scraper.stop_event.set()
+            loc_info = {"name": "Test Site", "lat": 28.5, "lng": 77.2}
+            count, outfile = scraper.process_single_location(1, loc_info, 1)
+            self.assertEqual(count, 0)
+            self.assertTrue(os.path.exists(outfile))
+
 
 if __name__ == "__main__":
     unittest.main()
