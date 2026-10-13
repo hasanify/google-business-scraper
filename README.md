@@ -13,7 +13,6 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 - **Multi-Threaded Parallel Execution:** Scrapes multiple target locations concurrently using a worker thread pool (one location per thread) for high performance and minimal turnaround time.
 - **Resilient Pagination & Rate Limiting:** Handles `pageToken` pagination, network timeouts, and inter-query delays to prevent API throttling.
 - **Streaming CSV Export:** Flushes discovered records progressively to disk to avoid data loss during network hiccups.
-- **100% Backward Compatible:** Keeps legacy `google_get_poi.py` importable and runnable while providing a modern modular architecture.
 
 ---
 
@@ -40,8 +39,7 @@ revoplakt-business-scraper/
 │   └── test_scraper.py       # Automated unit tests for geo math, formatters, and I/O
 ├── .env.example              # Template for API credentials
 ├── .gitignore                # Git exclusions (credentials, data, venv, planning)
-├── google_get_poi.py         # Backward-compatible script entry point
-├── main.py                   # Modern CLI entry point with argument flags
+├── main.py                   # CLI entry point with argument flags
 ├── locations.csv             # Target locations and coordinates (gitignored)
 └── requirements.txt          # Python dependencies
 ```
@@ -132,13 +130,6 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 | `--locations` | `locations.csv` | Path to CSV file containing target coordinates |
 | `--output-dir` | `./data/google` | Directory where output CSV files will be saved |
 | `--workers` | Auto (CPU threads) | Number of concurrent worker threads (automatically calculated from system CPU cores/threads, clamped between 2 and 32) |
-
-### Run with Legacy Entry Point (`google_get_poi.py`)
-
-If you have existing automation or scripts expecting `google_get_poi.py`:
-```bash
-python google_get_poi.py
-```
 
 ---
 
