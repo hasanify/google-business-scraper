@@ -1,16 +1,18 @@
-"""Unit tests for geo calculations, formatters, and I/O utilities."""
+"""Unit tests for geo calculations, formatters, I/O utilities, and concurrency config."""
 
 import os
 from pathlib import Path
 import tempfile
 import unittest
 
+from src.config import ScraperConfig
 from src.constants import CSV_FIELDNAMES, DAY_MAP, KEYWORD_GROUPS
 from src.geo.vincenty import (
     bounding_box_vincenty,
     vincenty_direct,
     vincenty_km,
 )
+from src.scraper import BusinessScraper
 from src.utils.formatters import compress_opening_hours, sanitize_filename
 from src.utils.io import load_locations
 
@@ -90,6 +92,26 @@ class TestIO(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
+
+
+class TestConcurrencyAndConfig(unittest.TestCase):
+    """Test multi-threaded configuration and worker sizing."""
+
+    def test_default_workers_config(self):
+        """Default max_workers should be set to 5."""
+        cfg = ScraperConfig()
+        self.assertEqual(cfg.max_workers, 5)
+
+    def test_custom_workers_config(self):
+        """Custom workers parameter should be stored in ScraperConfig."""
+        cfg = ScraperConfig(max_workers=10)
+        self.assertEqual(cfg.max_workers, 10)
+
+    def test_scraper_initializes_with_workers(self):
+        """BusinessScraper should accept custom worker configuration."""
+        cfg = ScraperConfig(max_workers=8)
+        scraper = BusinessScraper(cfg)
+        self.assertEqual(scraper.config.max_workers, 8)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 - **Broad Industry Taxonomy:** Preconfigured across 10 major category groups and 150+ Google Place types (automotive, entertainment, food & drink, sports, shopping, services, culture, education, finance, facilities).
 - **Intelligent Deduplication:** Enforces unique Google Place ID tracking across multiple keyword scans for each target location.
 - **Operating Hours Compression:** Compresses raw daily scheduling periods into compact, readable range strings (e.g., `Mon-Fri 09:00-18:00 | Sat 10:00-16:00`).
+- **Multi-Threaded Parallel Execution:** Scrapes multiple target locations concurrently using a worker thread pool (one location per thread) for high performance and minimal turnaround time.
 - **Resilient Pagination & Rate Limiting:** Handles `pageToken` pagination, network timeouts, and inter-query delays to prevent API throttling.
 - **Streaming CSV Export:** Flushes discovered records progressively to disk to avoid data loss during network hiccups.
 - **100% Backward Compatible:** Keeps legacy `google_get_poi.py` importable and runnable while providing a modern modular architecture.
@@ -130,6 +131,7 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 | `--radius` | `3.0` | Search radius in kilometers around each point |
 | `--locations` | `locations.csv` | Path to CSV file containing target coordinates |
 | `--output-dir` | `./data/google` | Directory where output CSV files will be saved |
+| `--workers` | `5` | Number of concurrent worker threads (one location per thread) |
 
 ### Run with Legacy Entry Point (`google_get_poi.py`)
 

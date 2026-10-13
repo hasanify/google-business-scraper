@@ -1,9 +1,11 @@
 """Business Scraper Orchestration Engine.
 
 Coordinates the loading of target locations, spatial querying of Google Places,
-result deduplication, geodesic distance verification, and streaming CSV export.
+result deduplication, geodesic distance verification, multi-threaded parallel execution,
+and streaming CSV export.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import os
 from pathlib import Path
@@ -58,12 +60,10 @@ class BusinessScraper:
         output_file = os.path.join(
             self.config.output_dir, f"location_{index:02d}_{slug}.csv"
         )
+        tag = f"[{index:02d}/{total_count:02d}] ({loc_name[:25]})"
 
-        print("\n" + "=" * 65)
-        print(f"[{index}/{total_count}] Processing: {loc_name}")
-        print(f"Coordinates: ({lat}, {lng}) | Radius: {self.config.radius_km} km")
-        print(f"Output File: {output_file}")
-        print("=" * 65)
+        print(f"\n{tag} Starting scrape at ({lat}, {lng}) | Radius: {self.config.radius_km} km", flush=True)
+        print(f"{tag} Output: {output_file}", flush=True)
 
         seen: Set[str] = set()
         sno = 0
@@ -74,7 +74,7 @@ class BusinessScraper:
             f.flush()
 
             for group, types in KEYWORD_GROUPS.items():
-                print(f"--- Fetching group: {group} ---")
+                print(f"{tag} Fetching category: {group}", flush=True)
                 for place_type in types:
                     places = self.client.search_text_paginated(
                         place_type, lat, lng, self.config.radius_km, seen
@@ -110,12 +110,11 @@ class BusinessScraper:
                     f.flush()
                     time.sleep(self.config.inter_query_delay)
 
-        print(f"Finished location [{index}/{total_count}]: {loc_name}")
-        print(f"Saved {sno} unique businesses to {output_file}")
+        print(f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}", flush=True)
         return sno, output_file
 
     def run(self) -> None:
-        """Execute the full scraping pipeline across all locations defined in locations_file."""
+        """Execute the scraping pipeline across all locations with multi-threaded concurrency."""
         ensure_output_dir(self.config.output_dir)
 
         locations = load_locations(self.config.locations_file)
@@ -123,24 +122,53 @@ class BusinessScraper:
             print(f"No locations found in {self.config.locations_file}!", flush=True)
             return
 
-        print(f"Loaded {len(locations)} locations from {self.config.locations_file}.", flush=True)
-        print(f"Configured Radius: {self.config.radius_km} km per location.", flush=True)
+        total_locations = len(locations)
+        num_workers = min(total_locations, max(1, self.config.max_workers))
+
+        print("=" * 65, flush=True)
+        print(f"Loaded {total_locations} locations from {self.config.locations_file}.", flush=True)
+        print(f"Configured Radius : {self.config.radius_km} km per location.", flush=True)
+        print(f"Concurrency       : {num_workers} parallel worker thread(s).", flush=True)
+        print("=" * 65, flush=True)
 
         # Pre-flight check with the first location
         if not self.client.check_api_key(locations[0]["lat"], locations[0]["lng"]):
             print("Aborting run due to API authorization/billing error.", flush=True)
             return
 
-        print(f"Scraping businesses within {self.config.radius_km} km for each location...", flush=True)
+        print(f"Starting parallel scrape across {num_workers} thread(s)...\n", flush=True)
 
         summary: List[Tuple[int, str, int, str]] = []
-        total_locations = len(locations)
-        for i, loc in enumerate(locations, start=1):
-            count, outfile = self.process_single_location(i, loc, total_locations)
-            summary.append((i, loc["name"], count, outfile))
 
-        print("\n" + "=" * 60, flush=True)
+        if num_workers == 1:
+            for i, loc in enumerate(locations, start=1):
+                try:
+                    count, outfile = self.process_single_location(i, loc, total_locations)
+                    summary.append((i, loc["name"], count, outfile))
+                except Exception as exc:
+                    print(f"[ERROR] Location [{i}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+        else:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                future_to_loc = {
+                    executor.submit(
+                        self.process_single_location, i, loc, total_locations
+                    ): (i, loc)
+                    for i, loc in enumerate(locations, start=1)
+                }
+
+                for future in as_completed(future_to_loc):
+                    idx, loc = future_to_loc[future]
+                    try:
+                        count, outfile = future.result()
+                        summary.append((idx, loc["name"], count, outfile))
+                    except Exception as exc:
+                        print(f"[ERROR] Location [{idx}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+
+        # Sort summary by original location index
+        summary.sort(key=lambda item: item[0])
+
+        print("\n" + "=" * 70, flush=True)
         print("ALL LOCATIONS COMPLETED", flush=True)
-        print("=" * 60, flush=True)
+        print("=" * 70, flush=True)
         for idx, name, count, outfile in summary:
-            print(f"[{idx:02d}] {name[:35]:<35} -> {count:4d} places | {outfile}", flush=True)
+            print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)

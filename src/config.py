@@ -53,6 +53,7 @@ class ScraperConfig:
     request_timeout: float = 15.0
     inter_query_delay: float = 0.2
     pagination_delay: float = 1.0
+    max_workers: int = 5
 
     def __post_init__(self) -> None:
         """Resolve API key from environment if not explicitly provided."""

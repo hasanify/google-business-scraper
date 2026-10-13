@@ -2,7 +2,8 @@
 
 Usage:
     python main.py
-    python main.py --radius 5.0 --locations my_locations.csv
+    python main.py --workers 8
+    python main.py --radius 5.0 --locations my_locations.csv --workers 10
 """
 
 import argparse
@@ -15,7 +16,7 @@ from src.scraper import BusinessScraper
 def parse_args() -> ScraperConfig:
     """Parse command line arguments and return ScraperConfig."""
     parser = argparse.ArgumentParser(
-        description="Scrape Google Places businesses within a radius around coordinates."
+        description="Scrape Google Places businesses within a radius around coordinates using multi-threading."
     )
     parser.add_argument(
         "--radius",
@@ -35,12 +36,19 @@ def parse_args() -> ScraperConfig:
         default="./data/google",
         help="Output directory for generated CSV files (default: ./data/google)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=5,
+        help="Number of concurrent worker threads (one location per thread, default: 5)",
+    )
     args = parser.parse_args()
 
     return ScraperConfig(
         radius_km=args.radius,
         locations_file=args.locations,
         output_dir=args.output_dir,
+        max_workers=args.workers,
     )
 
 

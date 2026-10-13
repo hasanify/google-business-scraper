@@ -27,6 +27,7 @@ RADIUS_KM = DEFAULT_CONFIG.radius_km
 LOCATIONS_FILE = DEFAULT_CONFIG.locations_file
 OUTPUT_DIR = DEFAULT_CONFIG.output_dir
 SEARCH_URL = DEFAULT_CONFIG.search_url
+MAX_WORKERS = DEFAULT_CONFIG.max_workers
 
 # Default module-level client
 _client = GooglePlacesClient(
@@ -64,6 +65,7 @@ def process_single_location(
             locations_file=LOCATIONS_FILE,
             output_dir=OUTPUT_DIR,
             search_url=SEARCH_URL,
+            max_workers=MAX_WORKERS,
         )
     )
     return scraper.process_single_location(index, loc_info, total_count)
@@ -78,6 +80,7 @@ def main() -> None:
             locations_file=LOCATIONS_FILE,
             output_dir=OUTPUT_DIR,
             search_url=SEARCH_URL,
+            max_workers=MAX_WORKERS,
         )
     )
     scraper.run()
