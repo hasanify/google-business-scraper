@@ -43,6 +43,12 @@ def parse_args() -> ScraperConfig:
         default=None,
         help=f"Number of concurrent worker threads (default: auto-detected from CPU cores/threads: {default_workers})",
     )
+    parser.add_argument(
+        "--max-qps",
+        type=float,
+        default=10.0,
+        help="Maximum requests/sec across all worker threads combined (default: 10.0 for Google Cloud quotas)",
+    )
     args = parser.parse_args()
 
     return ScraperConfig(
@@ -50,6 +56,7 @@ def parse_args() -> ScraperConfig:
         locations_file=args.locations,
         output_dir=args.output_dir,
         max_workers=args.workers,
+        max_qps=args.max_qps,
     )
 
 

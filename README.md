@@ -129,7 +129,8 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 | `--radius` | `3.0` | Search radius in kilometers around each point |
 | `--locations` | `locations.csv` | Path to CSV file containing target coordinates |
 | `--output-dir` | `./data/google` | Directory where output CSV files will be saved |
-| `--workers` | Auto (CPU threads) | Number of concurrent worker threads (automatically calculated from system CPU cores/threads, clamped between 2 and 32) |
+| `--workers` | Auto (CPU threads) | Number of concurrent worker threads (quota-safe default up to 8 threads, overrides allowed) |
+| `--max-qps` | `10.0` | Maximum queries-per-second across all threads combined (Google Cloud quota compliant) |
 
 ---
 

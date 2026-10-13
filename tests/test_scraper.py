@@ -98,9 +98,9 @@ class TestConcurrencyAndConfig(unittest.TestCase):
     """Test multi-threaded configuration and CPU-based worker sizing."""
 
     def test_default_workers_calculated_from_cpu(self):
-        """Default workers should scale with system CPU cores/threads within [2, 32]."""
+        """Default workers should scale with system CPU cores/threads within quota-safe bound [2, 8]."""
         from src.config import get_default_workers
-        expected = max(2, min(32, os.cpu_count() or 4))
+        expected = max(2, min(8, os.cpu_count() or 4))
         self.assertEqual(get_default_workers(), expected)
 
     def test_scraper_config_uses_cpu_default(self):
@@ -137,6 +137,33 @@ class TestConcurrencyAndConfig(unittest.TestCase):
             count, outfile = scraper.process_single_location(1, loc_info, 1)
             self.assertEqual(count, 0)
             self.assertTrue(os.path.exists(outfile))
+
+
+class TestRateLimiterAndQuotas(unittest.TestCase):
+    """Test global rate limiting and Google Places quota protections."""
+
+    def test_rate_limiter_acquires_immediately_first_call(self):
+        """First call to rate limiter should succeed immediately."""
+        from src.api.rate_limiter import ThreadSafeRateLimiter
+        limiter = ThreadSafeRateLimiter(max_qps=20.0)
+        self.assertTrue(limiter.acquire())
+
+    def test_rate_limiter_aborts_on_stop_event(self):
+        """Rate limiter should abort and return False if stop_event is signaled."""
+        import threading
+        from src.api.rate_limiter import ThreadSafeRateLimiter
+        limiter = ThreadSafeRateLimiter(max_qps=1.0)
+        stop_event = threading.Event()
+        stop_event.set()
+        self.assertFalse(limiter.acquire(stop_event=stop_event))
+
+    def test_client_initializes_with_rate_limiter(self):
+        """GooglePlacesClient should be equipped with a ThreadSafeRateLimiter."""
+        from src.api.google_places import GooglePlacesClient
+        from src.api.rate_limiter import ThreadSafeRateLimiter
+        client = GooglePlacesClient(api_key="test_key", max_qps=15.0)
+        self.assertIsInstance(client.rate_limiter, ThreadSafeRateLimiter)
+        self.assertEqual(client.rate_limiter.max_qps, 15.0)
 
 
 if __name__ == "__main__":

@@ -2,9 +2,11 @@
 
 Provides an interface to the Google Places API v1 searchText endpoint, handling
 authentication headers, field masks, spatial restriction bounding boxes, pagination,
-distance filtering, and pre-flight connectivity verification.
+global thread-safe rate limiting, exponential backoff on 429 quota exhaustion,
+and pre-flight connectivity verification.
 """
 
+import random
 import threading
 import time
 from typing import Any, Dict, List, Optional, Set
@@ -13,6 +15,7 @@ import requests
 
 from ..constants import PLACES_FIELD_MASK
 from ..geo.vincenty import bounding_box_vincenty, vincenty_km
+from .rate_limiter import ThreadSafeRateLimiter
 
 
 class GooglePlacesClient:
@@ -25,6 +28,10 @@ class GooglePlacesClient:
         field_mask: str = PLACES_FIELD_MASK,
         timeout: float = 15.0,
         page_delay: float = 1.0,
+        rate_limiter: Optional[ThreadSafeRateLimiter] = None,
+        max_qps: float = 10.0,
+        max_retries: int = 4,
+        retry_backoff: float = 1.5,
     ) -> None:
         """Initialize Google Places API client.
 
@@ -34,12 +41,19 @@ class GooglePlacesClient:
             field_mask: Comma-separated list of place fields to request.
             timeout: HTTP request timeout in seconds.
             page_delay: Sleep delay between paginated requests in seconds.
+            rate_limiter: Shared ThreadSafeRateLimiter instance (or None to auto-create).
+            max_qps: Maximum allowable queries per second (default: 10.0, standard 600 QPM).
+            max_retries: Maximum retry attempts on HTTP 429 rate limit or transient 5xx errors.
+            retry_backoff: Base exponential backoff multiplier in seconds.
         """
         self.api_key = api_key
         self.search_url = search_url
         self.field_mask = field_mask
         self.timeout = timeout
         self.page_delay = page_delay
+        self.rate_limiter = rate_limiter or ThreadSafeRateLimiter(max_qps=max_qps)
+        self.max_retries = max(0, max_retries)
+        self.retry_backoff = max(0.5, retry_backoff)
 
     def _get_headers(self) -> Dict[str, str]:
         """Generate common request headers including API key and field mask."""
@@ -81,6 +95,8 @@ class GooglePlacesClient:
             },
         }
 
+        self.rate_limiter.acquire()
+
         try:
             response = requests.post(
                 self.search_url,
@@ -115,7 +131,7 @@ class GooglePlacesClient:
         seen: Set[str],
         stop_event: Optional[threading.Event] = None,
     ) -> List[Dict[str, Any]]:
-        """Search Google Places for a specific type within a radius, handling pagination and distance filter.
+        """Search Google Places for a specific type with global rate limiting and 429 exponential backoff.
 
         Args:
             place_type: Google Places type string (e.g. 'car_repair', 'restaurant').
@@ -153,19 +169,62 @@ class GooglePlacesClient:
                 else:
                     time.sleep(self.page_delay)
 
-            try:
-                response = requests.post(
-                    self.search_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=self.timeout,
-                )
-            except Exception as exc:
-                print(f"Request exception: {exc}")
+            # Attempt request with global rate limiting and exponential backoff
+            response = None
+            for attempt in range(self.max_retries + 1):
+                if stop_event and stop_event.is_set():
+                    break
+
+                # Comply with global QPS ceiling across all active worker threads
+                if not self.rate_limiter.acquire(stop_event):
+                    break
+
+                try:
+                    response = requests.post(
+                        self.search_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=self.timeout,
+                    )
+                except Exception as exc:
+                    if attempt < self.max_retries and not (stop_event and stop_event.is_set()):
+                        backoff = self.retry_backoff * (2 ** attempt) + random.uniform(0.1, 0.4)
+                        print(f"[NETWORK RETRY] Error ({exc}). Retrying in {backoff:.1f}s (attempt {attempt+1}/{self.max_retries})...", flush=True)
+                        if stop_event and stop_event.wait(backoff):
+                            break
+                        continue
+                    print(f"Request exception: {exc}", flush=True)
+                    break
+
+                if response.status_code == 200:
+                    break
+
+                # HTTP 429: Rate limit or Resource Exhausted quota limit
+                if response.status_code == 429:
+                    if attempt < self.max_retries and not (stop_event and stop_event.is_set()):
+                        backoff = self.retry_backoff * (2 ** attempt) + random.uniform(0.2, 0.8)
+                        print(f"\n[RATE LIMIT 429] Google Places quota limit reached for {place_type}. Backing off {backoff:.1f}s (retry {attempt+1}/{self.max_retries})...", flush=True)
+                        if stop_event and stop_event.wait(backoff):
+                            break
+                        continue
+                    print(f"\n[ERROR 429] Rate limit exceeded for {place_type} after {self.max_retries} retries.", flush=True)
+                    break
+
+                # HTTP 5xx: Transient Google Cloud Server Error
+                if response.status_code in (500, 502, 503, 504):
+                    if attempt < self.max_retries and not (stop_event and stop_event.is_set()):
+                        backoff = self.retry_backoff * (2 ** attempt)
+                        print(f"[SERVER ERROR {response.status_code}] Google server error. Retrying in {backoff:.1f}s...", flush=True)
+                        if stop_event and stop_event.wait(backoff):
+                            break
+                        continue
+                    break
+
+                # Other HTTP errors (400, 403, etc.) - non-retryable
+                print(f"Error {response.status_code}: {response.text}", flush=True)
                 break
 
-            if response.status_code != 200:
-                print(f"Error {response.status_code}: {response.text}")
+            if not response or response.status_code != 200:
                 break
 
             data = response.json()
@@ -180,6 +239,7 @@ class GooglePlacesClient:
         for place in all_places:
             if stop_event and stop_event.is_set():
                 break
+
             pid = place.get("id")
             if not pid or pid in seen:
                 continue

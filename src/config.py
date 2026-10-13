@@ -1,7 +1,7 @@
 """Configuration management for the Google Places Business Scraper.
 
 Handles environment variable loading (with built-in fallback for .env files),
-CPU core/thread detection for concurrency, application constants, and runtime configuration.
+CPU core/thread detection for concurrency, API quota rate limits, and runtime configuration.
 """
 
 from dataclasses import dataclass
@@ -41,13 +41,14 @@ load_dotenv()
 
 
 def get_default_workers() -> int:
-    """Calculate default worker thread count based on CPU cores and hardware threads.
+    """Calculate default worker thread count based on CPU cores/threads and API safety limits.
 
-    Uses os.cpu_count() to query available logical processors (hardware threads),
-    ensuring at least 2 workers and an upper safety threshold of 32.
+    Uses os.cpu_count() while applying an upper default bound of 8 threads so concurrent
+    workers do not overwhelm Google's standard rate limits (10 QPS / 600 QPM).
+    Can be overridden via the --workers CLI argument.
     """
     cpu_threads = os.cpu_count() or 4
-    return max(2, min(32, cpu_threads))
+    return max(2, min(8, cpu_threads))
 
 
 @dataclass
@@ -64,6 +65,9 @@ class ScraperConfig:
     inter_query_delay: float = 0.2
     pagination_delay: float = 1.0
     max_workers: Optional[int] = None
+    max_qps: float = 10.0
+    max_retries: int = 4
+    retry_backoff: float = 1.5
 
     def __post_init__(self) -> None:
         """Resolve API key and dynamic CPU-based worker count if not explicitly set."""

@@ -15,6 +15,7 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .api.google_places import GooglePlacesClient
+from .api.rate_limiter import ThreadSafeRateLimiter
 from .config import DEFAULT_CONFIG, ScraperConfig
 from .constants import CSV_FIELDNAMES, KEYWORD_GROUPS
 from .geo.vincenty import vincenty_km
@@ -32,13 +33,18 @@ class BusinessScraper:
             config: ScraperConfig instance, or None to use DEFAULT_CONFIG.
         """
         self.config = config or DEFAULT_CONFIG
+        self.stop_event = threading.Event()
+        self.rate_limiter = ThreadSafeRateLimiter(max_qps=self.config.max_qps)
         self.client = GooglePlacesClient(
             api_key=self.config.api_key or "",
             search_url=self.config.search_url,
             timeout=self.config.request_timeout,
             page_delay=self.config.pagination_delay,
+            rate_limiter=self.rate_limiter,
+            max_qps=self.config.max_qps,
+            max_retries=self.config.max_retries,
+            retry_backoff=self.config.retry_backoff,
         )
-        self.stop_event = threading.Event()
 
     def process_single_location(
         self,
@@ -154,6 +160,7 @@ class BusinessScraper:
         print(f"Loaded {total_locations} locations from {self.config.locations_file}.", flush=True)
         print(f"Configured Radius : {self.config.radius_km} km per location.", flush=True)
         print(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).", flush=True)
+        print(f"Global Rate Limit : {self.config.max_qps:.1f} requests/sec across all threads (Google Cloud safe).", flush=True)
         print("Interrupt Guide   : Press Ctrl+C at any time for graceful shutdown.", flush=True)
         print("=" * 65, flush=True)
 
