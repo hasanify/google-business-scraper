@@ -17,6 +17,7 @@ venv.bak/
 # Project Data and Input Files
 data/
 locations.csv
+!locations.example.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

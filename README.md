@@ -41,6 +41,7 @@ revoplakt-business-scraper/
 ├── .env.example              # Template for API credentials
 ├── .gitignore                # Git exclusions (credentials, data, venv, planning)
 ├── main.py                   # CLI entry point with argument flags
+├── locations.example.csv     # Sample template for target locations and coordinates
 ├── locations.csv             # Target locations and coordinates (gitignored)
 └── requirements.txt          # Python dependencies
 ```
@@ -84,6 +85,7 @@ Copy `.env.example` to `.env` and insert your Google Cloud API key:
 
 ```bash
 cp .env.example .env
+cp locations.example.csv locations.csv
 ```
 
 Edit `.env`:
@@ -98,7 +100,7 @@ GOOGLE_API_KEY="AIzaSyYourActualGooglePlacesApiKeyHere"
 
 ## Input Data Format
 
-The scraper expects a CSV file (default: `locations.csv`) containing location descriptions and coordinate points:
+The scraper expects a CSV file (default: `locations.csv`) containing location descriptions and coordinate points (a starter template is available in `locations.example.csv`):
 
 ```csv
 Location,Lat,Long
