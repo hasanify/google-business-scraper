@@ -1,4 +1,4 @@
-"""Automated tests for Revoplakt Business Scraper GUI components."""
+"""Automated tests for Google Business Scraper GUI components."""
 
 import os
 import tempfile

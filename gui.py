@@ -1,4 +1,4 @@
-"""Desktop GUI launcher for Revoplakt Business Scraper.
+"""Desktop GUI launcher for Google Business Scraper.
 
 Usage:
     python gui.py
@@ -10,7 +10,7 @@ from src.gui import launch_gui
 
 
 def main() -> None:
-    """Launch the Revoplakt Business Scraper GUI."""
+    """Launch the Google Business Scraper GUI."""
     try:
         launch_gui()
     except KeyboardInterrupt:

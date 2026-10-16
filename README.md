@@ -1,4 +1,4 @@
-# Revoplakt Business Scraper
+# Google Business Scraper
 
 A modular, production-ready Python tool that discovers, aggregates, and exports Points of Interest (POIs) and businesses surrounding geographic coordinates using the **Google Places API (New)**.
 
@@ -20,7 +20,7 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 ## Project Structure
 
 ```text
-revoplakt-business-scraper/
+google-business-scraper/
 ├── .github/
 │   └── workflows/
 │       └── release.yml       # Automated GitHub Actions workflow to build and release exe
@@ -74,7 +74,7 @@ Clone the repository and set up a Python virtual environment:
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd revoplakt-business-scraper
+cd google-business-scraper
 
 # Create virtual environment
 python -m venv venv
@@ -123,13 +123,13 @@ Location,Lat,Long
 
 ## Usage
 
-### 1. Launch with Standalone Executable (`RevoplaktScraper.exe`)
+### 1. Launch with Standalone Executable (`GoogleBusinessScraper.exe`)
 
-Simply double-click `RevoplaktScraper.exe` in the project folder (or in `dist/`). No terminal commands or Python virtual environment activations are required.
+Simply double-click `GoogleBusinessScraper.exe` in the project folder (or in `dist/`). No terminal commands or Python virtual environment activations are required.
 
 To rebuild the executable at any time:
 ```bash
-pyinstaller --noconsole --onefile --name RevoplaktScraper gui.py
+pyinstaller --noconsole --onefile --name GoogleBusinessScraper gui.py
 ```
 
 ---
@@ -213,4 +213,4 @@ python -m unittest discover tests
 
 ## License
 
-Internal proprietary tooling for Revoplakt.
+Internal proprietary tooling for Google Business Scraper.

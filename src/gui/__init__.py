@@ -1,4 +1,4 @@
-"""GUI package for Revoplakt Business Scraper."""
+"""GUI package for Google Business Scraper."""
 
 from .app import ScraperApp, launch_gui
 

@@ -37,16 +37,16 @@ jobs:
 
       - name: Build Standalone Executable
         run: |
-          pyinstaller --noconsole --onefile --name RevoplaktScraper gui.py
+          pyinstaller --noconsole --onefile --name GoogleBusinessScraper gui.py
 
       - name: Verify Executable Exists
         shell: pwsh
         run: |
-          if (!(Test-Path "dist/RevoplaktScraper.exe")) {
-            Write-Error "Executable was not generated in dist/RevoplaktScraper.exe"
+          if (!(Test-Path "dist/GoogleBusinessScraper.exe")) {
+            Write-Error "Executable was not generated in dist/GoogleBusinessScraper.exe"
             exit 1
           }
-          $item = Get-Item "dist/RevoplaktScraper.exe"
+          $item = Get-Item "dist/GoogleBusinessScraper.exe"
           Write-Host "Built: $($item.FullName) ($([math]::Round($item.Length / 1MB, 2)) MB)"
 
       - name: Generate Release Tag & Notes
@@ -72,8 +72,8 @@ jobs:
             - **Workflow Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             #### Download
-            Download `RevoplaktScraper.exe` below and double-click to launch the GUI directly on Windows.
-          files: dist/RevoplaktScraper.exe
+            Download `GoogleBusinessScraper.exe` below and double-click to launch the GUI directly on Windows.
+          files: dist/GoogleBusinessScraper.exe
           draft: false
           prerelease: false
         env:

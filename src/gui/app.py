@@ -18,12 +18,12 @@ from .theme import ThemeColors, setup_theme
 
 
 class ScraperApp(tk.Tk):
-    """Main window for the Revoplakt Business Scraper desktop application."""
+    """Main window for the Google Business Scraper desktop application."""
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.title("Revoplakt Business Scraper - Desktop GUI")
+        self.title("Google Business Scraper - Desktop GUI")
         self.geometry("1100x720")
         self.minsize(980, 640)
 
@@ -54,7 +54,7 @@ class ScraperApp(tk.Tk):
 
         ttk.Label(
             title_box,
-            text="Revoplakt Business Scraper",
+            text="Google Business Scraper",
             style="AppTitle.TLabel",
         ).pack(anchor="w")
 
