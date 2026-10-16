@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 
 from ..config import ScraperConfig
 from ..scraper import BusinessScraper
+from ..version import __version__
 from .tabs.dashboard_tab import DashboardTab
 from .tabs.locations_tab import LocationsTab
 from .tabs.viewer_tab import ViewerTab
@@ -69,13 +70,15 @@ class ScraperApp(tk.Tk):
         # Right version tag
         ver_box = ttk.Frame(header, style="TFrame")
         ver_box.pack(side=tk.RIGHT)
-        ttk.Label(
+        ver_str = __version__ if __version__.startswith("v") else f"v{__version__}"
+        self.version_label = ttk.Label(
             ver_box,
-            text="v1.2.0 • Production Ready",
+            text=f"{ver_str} • Production Ready",
             font=("Segoe UI", 9, "bold"),
             foreground=ThemeColors.PRIMARY,
             background=ThemeColors.BG_DARK,
-        ).pack(anchor="e")
+        )
+        self.version_label.pack(anchor="e")
 
     def _build_notebook(self) -> None:
         """Tabbed notebook container."""

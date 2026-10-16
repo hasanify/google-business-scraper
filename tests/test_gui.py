@@ -36,6 +36,14 @@ class TestGUIComponents(unittest.TestCase):
         tabs = self.app.notebook.tabs()
         self.assertEqual(len(tabs), 3)
 
+    def test_version_display(self) -> None:
+        """Verify that the header version label dynamically reflects __version__."""
+        from src.version import __version__
+
+        expected_prefix = __version__ if __version__.startswith("v") else f"v{__version__}"
+        self.assertTrue(self.app.version_label["text"].startswith(expected_prefix))
+        self.assertIn("Production Ready", self.app.version_label["text"])
+
     def test_dashboard_categories(self) -> None:
         """Verify category select all / deselect all toggles."""
         dash = self.app.dashboard_tab
