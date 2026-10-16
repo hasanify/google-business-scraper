@@ -130,6 +130,7 @@ class BusinessScraper:
                             "opening_hours": compress_opening_hours(
                                 place.get("regularOpeningHours")
                             ),
+                            "tag": slug.lower(),
                         })
                     f.flush()
 

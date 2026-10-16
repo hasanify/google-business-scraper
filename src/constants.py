@@ -24,6 +24,7 @@ CSV_FIELDNAMES: List[str] = [
     "source_group",
     "primary_type",
     "opening_hours",
+    "tag",
 ]
 
 # Field mask for Google Places API (New) places:searchText queries
