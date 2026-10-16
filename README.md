@@ -21,6 +21,9 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 
 ```text
 revoplakt-business-scraper/
+├── .github/
+│   └── workflows/
+│       └── release.yml       # Automated GitHub Actions workflow to build and release exe
 ├── src/
 │   ├── __init__.py           # Package initialization
 │   ├── config.py             # ScraperConfig dataclass & environment loading (.env support)
