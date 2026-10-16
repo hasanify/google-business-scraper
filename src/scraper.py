@@ -66,87 +66,139 @@ class BusinessScraper:
         lat = loc_info["lat"]
         lng = loc_info["lng"]
         slug = sanitize_filename(loc_name)
-        output_file = os.path.join(
-            self.config.output_dir, f"location_{index:02d}_{slug}.csv"
-        )
+        filename = f"location_{index:02d}_{slug}.csv"
+        output_file = os.path.join(self.config.output_dir, filename)
+
+        dedup_output_file = None
+        if self.config.dedup_output_dir:
+            if os.path.abspath(self.config.dedup_output_dir) == os.path.abspath(self.config.output_dir):
+                dedup_filename = f"location_{index:02d}_{slug}_deduped.csv"
+            else:
+                dedup_filename = filename
+            dedup_output_file = os.path.join(
+                self.config.dedup_output_dir, dedup_filename
+            )
+            os.makedirs(os.path.dirname(dedup_output_file), exist_ok=True)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
         tag = f"[{index:02d}/{total_count:02d}] ({loc_name[:25]})"
 
         print(f"\n{tag} Starting scrape at ({lat}, {lng}) | Radius: {self.config.radius_km} km", flush=True)
-        print(f"{tag} Output: {output_file}", flush=True)
+        print(f"{tag} Output (All): {output_file}", flush=True)
+        if dedup_output_file:
+            print(f"{tag} Output (Dedup + Phone): {dedup_output_file}", flush=True)
 
         seen: Set[str] = set()
+        dedup_seen: Set[str] = set()
         sno = 0
+        dedup_sno = 0
 
         with open(output_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
             writer.writeheader()
             f.flush()
 
-            for group, types in KEYWORD_GROUPS.items():
-                if self.stop_event.is_set():
-                    break
+            f_dedup = None
+            dedup_writer = None
+            if dedup_output_file:
+                f_dedup = open(dedup_output_file, "w", newline="", encoding="utf-8")
+                dedup_writer = csv.DictWriter(f_dedup, fieldnames=CSV_FIELDNAMES)
+                dedup_writer.writeheader()
+                f_dedup.flush()
 
-                print(f"{tag} Fetching category: {group}", flush=True)
-                for place_type in types:
+            try:
+                for group, types in KEYWORD_GROUPS.items():
                     if self.stop_event.is_set():
                         break
 
-                    places = self.client.search_text_paginated(
-                        place_type,
-                        lat,
-                        lng,
-                        self.config.radius_km,
-                        seen,
-                        stop_event=self.stop_event,
-                    )
-
-                    for place in places:
+                    print(f"{tag} Fetching category: {group}", flush=True)
+                    for place_type in types:
                         if self.stop_event.is_set():
                             break
 
-                        pid = place.get("id")
-                        plat = place["location"]["latitude"]
-                        plng = place["location"]["longitude"]
-                        distance_km = vincenty_km(lat, lng, plat, plng)
+                        places = self.client.search_text_paginated(
+                            place_type,
+                            lat,
+                            lng,
+                            self.config.radius_km,
+                            seen,
+                            stop_event=self.stop_event,
+                        )
 
-                        sno += 1
-                        writer.writerow({
-                            "sno": sno,
-                            "name": place.get("displayName", {}).get("text", ""),
-                            "address": place.get("formattedAddress", ""),
-                            "gmb_link": f"https://www.google.com/maps/place/?q=place_id:{pid}",
-                            "lat": plat,
-                            "lng": plng,
-                            "distance_km": distance_km,
-                            "phone": (
+                        for place in places:
+                            if self.stop_event.is_set():
+                                break
+
+                            pid = place.get("id")
+                            plat = place["location"]["latitude"]
+                            plng = place["location"]["longitude"]
+                            distance_km = vincenty_km(lat, lng, plat, plng)
+                            phone = (
                                 place.get("internationalPhoneNumber")
                                 or place.get("nationalPhoneNumber")
                                 or ""
-                            ),
-                            "rating": place.get("rating", ""),
-                            "user_ratings_total": place.get("userRatingCount", ""),
-                            "source_group": group,
-                            "primary_type": place_type,
-                            "opening_hours": compress_opening_hours(
-                                place.get("regularOpeningHours")
-                            ),
-                            "tag": slug.lower(),
-                        })
-                    f.flush()
+                            )
 
-                    if self.stop_event.wait(self.config.inter_query_delay):
-                        break
+                            sno += 1
+                            row_data = {
+                                "sno": sno,
+                                "name": place.get("displayName", {}).get("text", ""),
+                                "address": place.get("formattedAddress", ""),
+                                "gmb_link": f"https://www.google.com/maps/place/?q=place_id:{pid}",
+                                "lat": plat,
+                                "lng": plng,
+                                "distance_km": distance_km,
+                                "phone": phone,
+                                "rating": place.get("rating", ""),
+                                "user_ratings_total": place.get("userRatingCount", ""),
+                                "source_group": group,
+                                "primary_type": place_type,
+                                "opening_hours": compress_opening_hours(
+                                    place.get("regularOpeningHours")
+                                ),
+                                "tag": slug.lower(),
+                            }
+                            writer.writerow(row_data)
+
+                            # Deduplicated variant with valid phone number only
+                            has_phone = bool(
+                                phone and phone.strip().lower() not in ("none", "null", "nan", "n/a", "-")
+                            )
+                            if has_phone and dedup_writer and pid not in dedup_seen:
+                                dedup_seen.add(pid)
+                                dedup_sno += 1
+                                dedup_row = dict(row_data)
+                                dedup_row["sno"] = dedup_sno
+                                dedup_writer.writerow(dedup_row)
+
+                        f.flush()
+                        if f_dedup:
+                            f_dedup.flush()
+
+                        if self.stop_event.wait(self.config.inter_query_delay):
+                            break
+            finally:
+                if f_dedup:
+                    f_dedup.close()
 
         if self.stop_event.is_set():
-            print(f"\n[!] {tag} Interrupted early. Flushed {sno} places to {output_file}", flush=True)
+            msg = f"\n[!] {tag} Interrupted early. Flushed {sno} places to {output_file}"
+            if dedup_output_file:
+                msg += f" ({dedup_sno} with phone to {dedup_output_file})"
+            print(msg, flush=True)
         else:
-            print(f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}", flush=True)
+            msg = f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}"
+            if dedup_output_file:
+                msg += f" ({dedup_sno} with phone to {dedup_output_file})"
+            print(msg, flush=True)
 
         return sno, output_file
 
     def run(self) -> None:
         """Execute the scraping pipeline across all locations with graceful interrupt handling."""
         ensure_output_dir(self.config.output_dir)
+        if self.config.dedup_output_dir:
+            ensure_output_dir(self.config.dedup_output_dir)
 
         locations = load_locations(self.config.locations_file)
         if not locations:

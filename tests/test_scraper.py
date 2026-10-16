@@ -166,5 +166,69 @@ class TestRateLimiterAndQuotas(unittest.TestCase):
         self.assertEqual(client.rate_limiter.max_qps, 15.0)
 
 
+class TestDualVariantGeneration(unittest.TestCase):
+    """Test generating both all-entries and deduplicated-with-phone variants."""
+
+    def test_dual_variant_files_created_and_filtered(self):
+        """Scraper should output all entries to output_dir and only valid phone entries to dedup_output_dir."""
+        import csv
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as tmp_all, tempfile.TemporaryDirectory() as tmp_dedup:
+            cfg = ScraperConfig(
+                output_dir=tmp_all,
+                dedup_output_dir=tmp_dedup,
+                inter_query_delay=0.0,
+            )
+            scraper = BusinessScraper(cfg)
+
+            # Mock search_text_paginated to return 2 places: 1 with phone, 1 without phone
+            mock_places = [
+                {
+                    "id": "place_1",
+                    "displayName": {"text": "Store With Phone"},
+                    "formattedAddress": "123 Main St",
+                    "location": {"latitude": 28.5, "longitude": 77.2},
+                    "internationalPhoneNumber": "+91 98765 43210",
+                    "businessStatus": "OPERATIONAL",
+                },
+                {
+                    "id": "place_2",
+                    "displayName": {"text": "Store Without Phone"},
+                    "formattedAddress": "456 Side St",
+                    "location": {"latitude": 28.5, "longitude": 77.2},
+                    "internationalPhoneNumber": None,
+                    "businessStatus": "OPERATIONAL",
+                },
+            ]
+            scraper.client.search_text_paginated = MagicMock(return_value=mock_places)
+
+            loc_info = {"name": "Test Hub", "lat": 28.5, "lng": 77.2}
+            call_count = [0]
+            def fake_search(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return mock_places
+                scraper.stop_event.set()
+                return []
+            scraper.client.search_text_paginated = fake_search
+
+            count, all_outfile = scraper.process_single_location(1, loc_info, 1)
+
+            dedup_outfile = os.path.join(tmp_dedup, os.path.basename(all_outfile))
+            self.assertTrue(os.path.exists(all_outfile))
+            self.assertTrue(os.path.exists(dedup_outfile))
+
+            with open(all_outfile, "r", encoding="utf-8") as f:
+                all_rows = list(csv.DictReader(f))
+            with open(dedup_outfile, "r", encoding="utf-8") as f:
+                dedup_rows = list(csv.DictReader(f))
+
+            self.assertEqual(len(all_rows), 2)
+            self.assertEqual(len(dedup_rows), 1)
+            self.assertEqual(dedup_rows[0]["phone"], "+91 98765 43210")
+            self.assertEqual(dedup_rows[0]["tag"], "test_hub")
+
+
 if __name__ == "__main__":
     unittest.main()

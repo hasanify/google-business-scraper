@@ -59,6 +59,7 @@ class ScraperConfig:
     radius_km: float = 3.0
     locations_file: str = "locations.csv"
     output_dir: str = "./data/google"
+    dedup_output_dir: Optional[str] = None
     search_url: str = "https://places.googleapis.com/v1/places:searchText"
     page_size: int = 20
     request_timeout: float = 15.0
@@ -76,6 +77,10 @@ class ScraperConfig:
 
         if self.max_workers is None or self.max_workers <= 0:
             self.max_workers = get_default_workers()
+
+        if self.dedup_output_dir is None and self.output_dir:
+            clean_out = self.output_dir.rstrip("/\\")
+            self.dedup_output_dir = f"{clean_out}_deduplicated"
 
 
 # Global default configuration instance

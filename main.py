@@ -38,6 +38,12 @@ def parse_args() -> ScraperConfig:
         help="Output directory for generated CSV files (default: ./data/google)",
     )
     parser.add_argument(
+        "--dedup-output-dir",
+        type=str,
+        default=None,
+        help="Output directory for deduplicated CSV files with phone numbers (default: <output_dir>_deduplicated)",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=None,
@@ -55,6 +61,7 @@ def parse_args() -> ScraperConfig:
         radius_km=args.radius,
         locations_file=args.locations,
         output_dir=args.output_dir,
+        dedup_output_dir=args.dedup_output_dir,
         max_workers=args.workers,
         max_qps=args.max_qps,
     )
