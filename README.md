@@ -29,6 +29,7 @@ google-business-scraper/
 │   ├── config.py             # ScraperConfig dataclass & environment loading (.env support)
 │   ├── constants.py          # Category taxonomy, CSV field schemas, day maps
 │   ├── scraper.py            # BusinessScraper pipeline orchestrator
+│   ├── version.py            # Application version definition
 │   ├── api/
 │   │   ├── __init__.py
 │   │   └── google_places.py  # Google Places API client, auth check, paginated queries
@@ -44,15 +45,20 @@ google-business-scraper/
 │       ├── __init__.py
 │       ├── formatters.py     # Opening hours compression, text sanitization & filename sanitization
 │       └── io.py             # CSV location parser, directory managers & CSV cleanup utilities
+├── scripts/
+│   └── prepare_release.py    # Release build orchestrator for semantic-release
 ├── tests/
 │   ├── test_gui.py           # Automated unit tests for GUI components and tabs
 │   └── test_scraper.py       # Automated unit tests for geo math, formatters, and I/O
 ├── .env.example              # Template for API credentials
 ├── .gitignore                # Git exclusions (credentials, data, venv, planning)
+├── .releaserc.json           # Semantic-release configuration
+├── CHANGELOG.md              # Automated changelog documentation
 ├── gui.py                    # Standalone Desktop GUI launcher
 ├── main.py                   # CLI entry point with argument flags
 ├── locations.example.csv     # Sample template for target locations and coordinates
 ├── locations.csv             # Target locations and coordinates (gitignored)
+├── package.json              # Semantic-release dependencies & scripts
 └── requirements.txt          # Python dependencies
 ```
 
