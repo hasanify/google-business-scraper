@@ -5,9 +5,94 @@ and sanitize location names for safe filesystem naming.
 """
 
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 from ..constants import DAY_MAP
+
+# Map common non-ASCII punctuation and typographic symbols to clean ASCII equivalents
+PUNCTUATION_TRANSLATION: Dict[int, str] = {
+    0x2019: "'",  # Right single quotation mark
+    0x2018: "'",  # Left single quotation mark
+    0x201C: '"',  # Left double quotation mark
+    0x201D: '"',  # Right double quotation mark
+    0x2013: "-",  # En dash
+    0x2014: "-",  # Em dash
+    0x2022: "-",  # Bullet
+    0x00B7: "-",  # Middle dot
+    0x2026: "...",  # Horizontal ellipsis
+    0x00D7: "x",  # Multiplication sign
+    0x00A0: " ",  # Non-breaking space
+    0x200B: "",  # Zero-width space
+    0xFEFF: "",  # Zero-width no-break space / BOM
+}
+
+
+def clean_text(text: Optional[str], is_name: bool = False) -> str:
+    """Sanitize and normalize text strings (names, addresses) for clean CSV export.
+
+    - Normalizes Unicode compatibility (NFKD) to convert stylized characters
+      (e.g., mathematical bold/italic to standard Latin) and decompose accents.
+    - Converts common smart quotes, dashes, and typographic symbols to ASCII.
+    - Strips combining diacritical marks (e.g. Cafe -> Cafe, Skoda -> Skoda).
+    - Removes non-ASCII scripts (such as Hindi/Devanagari, Arabic, CJK).
+    - Tidies redundant punctuation, orphan commas, empty brackets, and repeated spaces.
+    - Fallback: If stripping leaves no alphanumeric characters but the original text
+      had non-empty content (e.g. business names written purely in local script),
+      returns the trimmed original text so names are never left blank.
+
+    Args:
+        text: Raw input string or None.
+        is_name: Whether this field represents a business name (enables fallback).
+
+    Returns:
+        Cleaned, normalized string.
+    """
+    if not text:
+        return ""
+
+    original = str(text).strip()
+    if not original:
+        return ""
+
+    # Translate known non-ASCII punctuation/typography to ASCII
+    s = original.translate(PUNCTUATION_TRANSLATION)
+
+    # Normalize compatibility forms (e.g. mathematical bold/italic fonts to standard Latin,
+    # and decompose accented characters like e + acute accent)
+    s = unicodedata.normalize("NFKD", s)
+
+    # Remove combining diacritical marks (leaving base Latin letters: e -> e, s -> s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+
+    # Remove remaining non-ASCII characters (Devanagari, Arabic, CJK, etc.)
+    ascii_s = "".join(c for c in s if ord(c) < 128)
+
+    # Tidy whitespace and punctuation
+    cleaned = re.sub(r"[\t\r\n]+", " ", ascii_s)
+    # Remove empty parentheses/brackets left behind by stripped text
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"\[\s*\]", "", cleaned)
+    cleaned = re.sub(r"\{\s*\}", "", cleaned)
+    # Normalize comma spacing
+    cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
+    # Collapse consecutive commas separated by spaces
+    cleaned = re.sub(r"(,\s*)+,", ",", cleaned)
+    cleaned = re.sub(r",+", ",", cleaned)
+    # Collapse multiple spaces
+    cleaned = re.sub(r" +", " ", cleaned)
+    # Strip leading/trailing punctuation and whitespace
+    cleaned = re.sub(r"^[\s,;:\-]+|[\s,;:\-]+$", "", cleaned).strip()
+
+    # If all alphanumeric characters were stripped:
+    if not any(c.isalnum() for c in cleaned):
+        # Fallback: keep original text for names so fields are not left blank
+        if is_name and original:
+            return original
+        return ""
+
+    return cleaned
+
 
 
 def compress_opening_hours(roh: Optional[Dict[str, Any]]) -> str:

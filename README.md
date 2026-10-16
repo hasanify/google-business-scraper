@@ -10,6 +10,7 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 - **Broad Industry Taxonomy:** Preconfigured across 10 major category groups and 150+ Google Place types (automotive, entertainment, food & drink, sports, shopping, services, culture, education, finance, facilities).
 - **Intelligent Deduplication:** Enforces unique Google Place ID tracking across multiple keyword scans for each target location.
 - **Operating Hours Compression:** Compresses raw daily scheduling periods into compact, readable range strings (e.g., `Mon-Fri 09:00-18:00 | Sat 10:00-16:00`).
+- **Text Sanitization & Excel Compatibility:** Automatically strips non-Latin scripts (e.g., Devanagari/Hindi, Arabic), normalizes accents (`Café` -> `Cafe`, `Škoda` -> `Skoda`) and stylized typography to clean ASCII, and exports files with UTF-8 BOM (`utf-8-sig`) to eliminate spreadsheet mojibake.
 - **Multi-Threaded Parallel Execution:** Scrapes multiple target locations concurrently using a worker thread pool (one location per thread) for high performance and minimal turnaround time.
 - **Resilient Pagination & Rate Limiting:** Handles `pageToken` pagination, network timeouts, and inter-query delays to prevent API throttling.
 - **Streaming CSV Export:** Flushes discovered records progressively to disk to avoid data loss during network hiccups.
@@ -33,8 +34,8 @@ revoplakt-business-scraper/
 │   │   └── vincenty.py       # WGS-84 Vincenty geodesic distance & bounding box math
 │   └── utils/
 │       ├── __init__.py
-│       ├── formatters.py     # Opening hours compression & filename sanitization
-│       └── io.py             # CSV location parser & directory managers
+│       ├── formatters.py     # Opening hours compression, text sanitization & filename sanitization
+│       └── io.py             # CSV location parser, directory managers & CSV cleanup utilities
 ├── tests/
 │   └── test_scraper.py       # Automated unit tests for geo math, formatters, and I/O
 ├── .env.example              # Template for API credentials
@@ -129,14 +130,16 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 | `--radius` | `3.0` | Search radius in kilometers around each point |
 | `--locations` | `locations.csv` | Path to CSV file containing target coordinates |
 | `--output-dir` | `./data/google` | Directory where output CSV files will be saved |
+| `--dedup-output-dir` | `<output-dir>_deduplicated` | Directory where deduplicated records with valid phones will be saved |
 | `--workers` | Auto (CPU threads) | Number of concurrent worker threads (quota-safe default up to 8 threads, overrides allowed) |
 | `--max-qps` | `10.0` | Maximum queries-per-second across all threads combined (Google Cloud quota compliant) |
+| `--clean-existing` | `False` | Clean text fields (names, addresses) and re-encode existing CSV files with UTF-8 BOM |
 
 ---
 
 ## Output CSV Schema
 
-For each input location, a corresponding CSV file is created in `data/google/` named `location_{index:02d}_{sanitized_name}.csv`.
+For each input location, a corresponding CSV file is created in `data/google/` named `location_{index:02d}_{sanitized_name}.csv`. Files are written with **UTF-8 with BOM (`utf-8-sig`)** encoding to ensure native readability in Microsoft Excel without character corruption or mojibake. Non-Latin scripts (e.g., Devanagari/Hindi, Arabic) are sanitized, while accented Latin characters and stylized fonts are normalized to clean ASCII.
 
 Each file contains the following fields:
 

@@ -19,7 +19,7 @@ from .api.rate_limiter import ThreadSafeRateLimiter
 from .config import DEFAULT_CONFIG, ScraperConfig
 from .constants import CSV_FIELDNAMES, KEYWORD_GROUPS
 from .geo.vincenty import vincenty_km
-from .utils.formatters import compress_opening_hours, sanitize_filename
+from .utils.formatters import clean_text, compress_opening_hours, sanitize_filename
 from .utils.io import ensure_output_dir, load_locations
 
 
@@ -93,7 +93,7 @@ class BusinessScraper:
         sno = 0
         dedup_sno = 0
 
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
+        with open(output_file, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
             writer.writeheader()
             f.flush()
@@ -101,7 +101,7 @@ class BusinessScraper:
             f_dedup = None
             dedup_writer = None
             if dedup_output_file:
-                f_dedup = open(dedup_output_file, "w", newline="", encoding="utf-8")
+                f_dedup = open(dedup_output_file, "w", newline="", encoding="utf-8-sig")
                 dedup_writer = csv.DictWriter(f_dedup, fieldnames=CSV_FIELDNAMES)
                 dedup_writer.writeheader()
                 f_dedup.flush()
@@ -142,8 +142,14 @@ class BusinessScraper:
                             sno += 1
                             row_data = {
                                 "sno": sno,
-                                "name": place.get("displayName", {}).get("text", ""),
-                                "address": place.get("formattedAddress", ""),
+                                "name": clean_text(
+                                    place.get("displayName", {}).get("text", ""),
+                                    is_name=True,
+                                ),
+                                "address": clean_text(
+                                    place.get("formattedAddress", ""),
+                                    is_name=False,
+                                ),
                                 "gmb_link": f"https://www.google.com/maps/place/?q=place_id:{pid}",
                                 "lat": plat,
                                 "lng": plng,

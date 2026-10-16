@@ -13,8 +13,12 @@ from src.geo.vincenty import (
     vincenty_km,
 )
 from src.scraper import BusinessScraper
-from src.utils.formatters import compress_opening_hours, sanitize_filename
-from src.utils.io import load_locations
+from src.utils.formatters import clean_text, compress_opening_hours, sanitize_filename
+from src.utils.io import (
+    clean_all_csv_files,
+    clean_csv_file,
+    load_locations,
+)
 
 
 class TestGeodesicCalculations(unittest.TestCase):
@@ -72,6 +76,75 @@ class TestFormatters(unittest.TestCase):
         compressed = compress_opening_hours(sample_hours)
         self.assertEqual(compressed, "Mon-Fri 09:00-18:00")
 
+    def test_clean_text_user_example(self):
+        """User address example with Devanagari script should be cleanly stripped to ASCII."""
+        raw_address = (
+            "IndianOil e-Charge Station, Intimate Filling Station, "
+            "\u092a\u0902\u091a\u0936\u0940\u0932 \u092e\u093e\u0930\u094d\u0917, "
+            "\u0938\u094b\u0905\u092e\u0940 \u0928\u0917\u0930 \u0928\u0949\u0930\u094d\u0925, "
+            "\u0938\u094b\u0905\u092e\u0940 \u0928\u0917\u0930, "
+            "\u0928\u0908 \u0926\u093f\u0932\u094d\u0932\u0940, "
+            "\u0926\u093f\u0932\u094d\u0932\u0940 110017, India"
+        )
+        cleaned = clean_text(raw_address, is_name=False)
+        self.assertEqual(
+            cleaned,
+            "IndianOil e-Charge Station, Intimate Filling Station, 110017, India",
+        )
+
+    def test_clean_text_accents_and_typography(self):
+        """Accented letters and typographic symbols should normalize to clean ASCII."""
+        self.assertEqual(clean_text("Caf\xe9 27", is_name=True), "Cafe 27")
+        self.assertEqual(
+            clean_text("Buglee \u0160koda Showroom", is_name=True),
+            "Buglee Skoda Showroom",
+        )
+        self.assertEqual(clean_text("Malik\u2019s Crib", is_name=True), "Malik's Crib")
+        self.assertEqual(
+            clean_text("Service 24\xd77", is_name=True), "Service 24x7"
+        )
+
+    def test_clean_text_mathematical_alphanumeric(self):
+        """Mathematical stylized bold/italic fonts should normalize to standard ASCII."""
+        math_str = (
+            "\U0001d40f\U0001d414\U0001d40d\U0001d408\U0001d400 "
+            "\U0001d413\U0001d411\U0001d415\U0001d40b\U0001d404\U0001d419 "
+            "\U0001d408\U0001d40d\U0001d403\U0001d408\U0001d400 - Luxury rentals"
+        )
+        cleaned = clean_text(math_str, is_name=True)
+        self.assertEqual(cleaned, "PUNIA TRVLEZ INDIA - Luxury rentals")
+
+    def test_clean_text_arabic_and_empty_brackets(self):
+        """Arabic words and empty brackets from stripped text should be removed cleanly."""
+        arabic_addr = (
+            "\u0634\u0627\u06be\u06cc 4/46, Double story, behind Shahi Masjid "
+            "\u0645\u0633\u062c\u062f, Jungpura Extension, New Delhi, Delhi 110014, India"
+        )
+        cleaned = clean_text(arabic_addr, is_name=False)
+        self.assertEqual(
+            cleaned,
+            "4/46, Double story, behind Shahi Masjid, Jungpura Extension, New Delhi, Delhi 110014, India",
+        )
+        self.assertEqual(
+            clean_text("IndianOil (\u092a\u0902\u091a\u0936\u0940\u0932) Station"),
+            "IndianOil Station",
+        )
+
+    def test_clean_text_fallback_for_pure_non_latin(self):
+        """Pure non-Latin names should fallback to original text so names are not blank."""
+        hindi_name = "\u0905\u0932\u0940\u0917\u0902\u091c \u0917\u093e\u0902\u0935 \u0917\u0941\u0930\u094d\u091c\u0930"
+        self.assertEqual(clean_text(hindi_name, is_name=True), hindi_name)
+        # For non-names (e.g. address), empty is returned if no ASCII content remains
+        self.assertEqual(clean_text(hindi_name, is_name=False), "")
+
+    def test_clean_text_empty_and_whitespace(self):
+        """Empty, None, and pure punctuation should return empty string."""
+        self.assertEqual(clean_text(None), "")
+        self.assertEqual(clean_text(""), "")
+        self.assertEqual(clean_text("   "), "")
+        self.assertEqual(clean_text(",,, , -"), "")
+
+
 
 class TestIO(unittest.TestCase):
     """Test file loading and parsing."""
@@ -89,6 +162,45 @@ class TestIO(unittest.TestCase):
             self.assertEqual(locations[0]["name"], "Test Center")
             self.assertEqual(locations[0]["lat"], 28.5)
             self.assertEqual(locations[0]["lng"], 77.2)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_clean_csv_file(self):
+        """clean_csv_file should sanitize fields, write UTF-8 BOM, and report modified rows."""
+        import csv
+        header = "sno,name,address\n"
+        row1 = (
+            '1,Tata Power Charging Station,"IndianOil e-Charge Station, Intimate Filling Station, '
+            '\u092a\u0902\u091a\u0936\u0940\u0932 \u092e\u093e\u0930\u094d\u0917, 110017, India"\n'
+        )
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".csv", encoding="utf-8") as f:
+            f.write(header + row1)
+            temp_path = f.name
+
+        try:
+            total, modified = clean_csv_file(temp_path)
+            self.assertEqual(total, 1)
+            self.assertEqual(modified, 1)
+
+            # Check UTF-8 BOM
+            with open(temp_path, "rb") as f:
+                self.assertEqual(f.read(3), b"\xef\xbb\xbf")
+
+            # Check cleaned content
+            with open(temp_path, "r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(
+                    rows[0]["address"],
+                    "IndianOil e-Charge Station, Intimate Filling Station, 110017, India",
+                )
+
+            # Idempotence: running again modifies 0 rows
+            total2, modified2 = clean_csv_file(temp_path)
+            self.assertEqual(total2, 1)
+            self.assertEqual(modified2, 0)
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)

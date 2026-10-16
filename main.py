@@ -11,10 +11,11 @@ import sys
 
 from src.config import ScraperConfig, get_default_workers
 from src.scraper import BusinessScraper
+from src.utils.io import clean_all_csv_files
 
 
-def parse_args() -> ScraperConfig:
-    """Parse command line arguments and return ScraperConfig."""
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     default_workers = get_default_workers()
     parser = argparse.ArgumentParser(
         description="Scrape Google Places businesses within a radius around coordinates using multi-threading."
@@ -55,22 +56,39 @@ def parse_args() -> ScraperConfig:
         default=10.0,
         help="Maximum requests/sec across all worker threads combined (default: 10.0 for Google Cloud quotas)",
     )
-    args = parser.parse_args()
-
-    return ScraperConfig(
-        radius_km=args.radius,
-        locations_file=args.locations,
-        output_dir=args.output_dir,
-        dedup_output_dir=args.dedup_output_dir,
-        max_workers=args.workers,
-        max_qps=args.max_qps,
+    parser.add_argument(
+        "--clean-existing",
+        action="store_true",
+        help="Clean text fields (names, addresses) and re-encode existing CSV files with UTF-8 BOM",
     )
+    return parser.parse_args()
 
 
 def main() -> None:
     """Run scraper with command-line or default configuration."""
     try:
-        config = parse_args()
+        args = parse_args()
+        if args.clean_existing:
+            out_dir = args.output_dir
+            dedup_dir = args.dedup_output_dir or f"{args.output_dir}_deduplicated"
+            print(f"Cleaning existing CSV files in '{out_dir}' and '{dedup_dir}'...", flush=True)
+            summary = clean_all_csv_files([out_dir, dedup_dir])
+            print(
+                f"\nCleanup finished: Processed {summary['files_processed']} files, "
+                f"{summary['total_rows']} total rows, "
+                f"{summary['modified_rows']} modified rows.",
+                flush=True,
+            )
+            return
+
+        config = ScraperConfig(
+            radius_km=args.radius,
+            locations_file=args.locations,
+            output_dir=args.output_dir,
+            dedup_output_dir=args.dedup_output_dir,
+            max_workers=args.workers,
+            max_qps=args.max_qps,
+        )
         scraper = BusinessScraper(config)
         scraper.run()
     except KeyboardInterrupt:
@@ -80,3 +98,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
