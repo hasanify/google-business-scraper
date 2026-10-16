@@ -32,14 +32,21 @@ revoplakt-business-scraper/
 │   ├── geo/
 │   │   ├── __init__.py
 │   │   └── vincenty.py       # WGS-84 Vincenty geodesic distance & bounding box math
+│   ├── gui/
+│   │   ├── __init__.py       # GUI package initialization
+│   │   ├── app.py            # ScraperApp main window & worker thread queue
+│   │   ├── theme.py          # Dark-slate theme, typography & DPI scaling
+│   │   └── tabs/             # Dashboard, Locations Manager & Results Viewer tabs
 │   └── utils/
 │       ├── __init__.py
 │       ├── formatters.py     # Opening hours compression, text sanitization & filename sanitization
 │       └── io.py             # CSV location parser, directory managers & CSV cleanup utilities
 ├── tests/
+│   ├── test_gui.py           # Automated unit tests for GUI components and tabs
 │   └── test_scraper.py       # Automated unit tests for geo math, formatters, and I/O
 ├── .env.example              # Template for API credentials
 ├── .gitignore                # Git exclusions (credentials, data, venv, planning)
+├── gui.py                    # Standalone Desktop GUI launcher
 ├── main.py                   # CLI entry point with argument flags
 ├── locations.example.csv     # Sample template for target locations and coordinates
 ├── locations.csv             # Target locations and coordinates (gitignored)
@@ -113,7 +120,34 @@ Location,Lat,Long
 
 ## Usage
 
-### Run with Modern CLI (`main.py`)
+### 1. Launch with Standalone Executable (`RevoplaktScraper.exe`)
+
+Simply double-click `RevoplaktScraper.exe` in the project folder (or in `dist/`). No terminal commands or Python virtual environment activations are required.
+
+To rebuild the executable at any time:
+```bash
+pyinstaller --noconsole --onefile --name RevoplaktScraper gui.py
+```
+
+---
+
+### 2. Run with Python Desktop GUI (`gui.py`)
+
+Launch the native graphical user interface via Python:
+```bash
+python gui.py
+# or via CLI flag:
+python main.py --gui
+```
+
+**Desktop GUI Features:**
+- **Scraper Dashboard:** Configure API key (show/hide toggle, save to `.env`), target CSV file, output directories, search radius, concurrency worker count, max QPS, and category checklists with a real-time progress bar, live metrics cards, streaming console log, and start/stop controls.
+- **Locations Manager:** View, filter, add, edit, delete, and save target coordinates directly within an interactive table with latitude/longitude bounds validation.
+- **Results Viewer & Tools:** Browse and search scraped business records, view key metrics (total places, valid phone count, average rating), open CSVs directly in Excel or folder in Explorer, and run one-click text sanitization with UTF-8 BOM encoding.
+
+---
+
+### 3. Run with Modern CLI (`main.py`)
 
 Run with default settings (3 km radius, `locations.csv`):
 ```bash
@@ -129,6 +163,7 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 
 | Flag | Default | Description |
 | :--- | :--- | :--- |
+| `--gui` | `False` | Launch the desktop graphical user interface (GUI) |
 | `--radius` | `3.0` | Search radius in kilometers around each point |
 | `--locations` | `locations.csv` | Path to CSV file containing target coordinates |
 | `--output-dir` | `./data/google` | Directory where output CSV files will be saved |

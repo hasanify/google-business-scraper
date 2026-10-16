@@ -1,3 +1,4 @@
 requests==2.32.3
 pandas==2.2.3
 playwright==1.41.2
+pyinstaller>=6.0.0
