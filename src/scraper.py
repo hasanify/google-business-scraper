@@ -12,7 +12,7 @@ from pathlib import Path
 import signal
 import threading
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from .api.google_places import GooglePlacesClient
 from .api.rate_limiter import ThreadSafeRateLimiter
@@ -26,13 +26,22 @@ from .utils.io import ensure_output_dir, load_locations
 class BusinessScraper:
     """Orchestrator for scraping Google Places POIs around target coordinates."""
 
-    def __init__(self, config: Optional[ScraperConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[ScraperConfig] = None,
+        log_callback: Optional[Callable[[str], None]] = None,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> None:
         """Initialize scraper with runtime configuration.
 
         Args:
             config: ScraperConfig instance, or None to use DEFAULT_CONFIG.
+            log_callback: Optional function to receive streaming log text.
+            progress_callback: Optional function to receive structured progress dictionaries.
         """
         self.config = config or DEFAULT_CONFIG
+        self.log_callback = log_callback
+        self.progress_callback = progress_callback
         self.stop_event = threading.Event()
         self.rate_limiter = ThreadSafeRateLimiter(max_qps=self.config.max_qps)
         self.client = GooglePlacesClient(
@@ -45,6 +54,23 @@ class BusinessScraper:
             max_retries=self.config.max_retries,
             retry_backoff=self.config.retry_backoff,
         )
+
+    def log(self, message: str) -> None:
+        """Output message to stdout and optional log_callback."""
+        print(message, flush=True)
+        if self.log_callback:
+            try:
+                self.log_callback(message)
+            except Exception:
+                pass
+
+    def emit_progress(self, data: Dict[str, Any]) -> None:
+        """Send progress dictionary to optional progress_callback."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(data)
+            except Exception:
+                pass
 
     def process_single_location(
         self,
@@ -83,15 +109,32 @@ class BusinessScraper:
 
         tag = f"[{index:02d}/{total_count:02d}] ({loc_name[:25]})"
 
-        print(f"\n{tag} Starting scrape at ({lat}, {lng}) | Radius: {self.config.radius_km} km", flush=True)
-        print(f"{tag} Output (All): {output_file}", flush=True)
+        self.log(f"\n{tag} Starting scrape at ({lat}, {lng}) | Radius: {self.config.radius_km} km")
+        self.log(f"{tag} Output (All): {output_file}")
         if dedup_output_file:
-            print(f"{tag} Output (Dedup + Phone): {dedup_output_file}", flush=True)
+            self.log(f"{tag} Output (Dedup + Phone): {dedup_output_file}")
+
+        self.emit_progress({
+            "type": "location_start",
+            "index": index,
+            "total": total_count,
+            "location": loc_name,
+            "lat": lat,
+            "lng": lng,
+            "output_file": output_file,
+            "dedup_output_file": dedup_output_file,
+        })
 
         seen: Set[str] = set()
         dedup_seen: Set[str] = set()
         sno = 0
         dedup_sno = 0
+
+        groups_to_query = {
+            group: types
+            for group, types in KEYWORD_GROUPS.items()
+            if not self.config.selected_categories or group in self.config.selected_categories
+        }
 
         with open(output_file, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
@@ -107,11 +150,21 @@ class BusinessScraper:
                 f_dedup.flush()
 
             try:
-                for group, types in KEYWORD_GROUPS.items():
+                for group, types in groups_to_query.items():
                     if self.stop_event.is_set():
                         break
 
-                    print(f"{tag} Fetching category: {group}", flush=True)
+                    self.log(f"{tag} Fetching category: {group}")
+                    self.emit_progress({
+                        "type": "category_start",
+                        "index": index,
+                        "total": total_count,
+                        "location": loc_name,
+                        "group": group,
+                        "sno": sno,
+                        "dedup_sno": dedup_sno,
+                    })
+
                     for place_type in types:
                         if self.stop_event.is_set():
                             break
@@ -177,6 +230,16 @@ class BusinessScraper:
                                 dedup_row["sno"] = dedup_sno
                                 dedup_writer.writerow(dedup_row)
 
+                            self.emit_progress({
+                                "type": "place_found",
+                                "index": index,
+                                "total": total_count,
+                                "location": loc_name,
+                                "sno": sno,
+                                "dedup_sno": dedup_sno,
+                                "name": row_data["name"],
+                            })
+
                         f.flush()
                         if f_dedup:
                             f_dedup.flush()
@@ -191,12 +254,23 @@ class BusinessScraper:
             msg = f"\n[!] {tag} Interrupted early. Flushed {sno} places to {output_file}"
             if dedup_output_file:
                 msg += f" ({dedup_sno} with phone to {dedup_output_file})"
-            print(msg, flush=True)
+            self.log(msg)
         else:
             msg = f"\n>>> {tag} COMPLETED: Saved {sno} unique places to {output_file}"
             if dedup_output_file:
                 msg += f" ({dedup_sno} with phone to {dedup_output_file})"
-            print(msg, flush=True)
+            self.log(msg)
+
+        self.emit_progress({
+            "type": "location_complete",
+            "index": index,
+            "total": total_count,
+            "location": loc_name,
+            "sno": sno,
+            "dedup_sno": dedup_sno,
+            "output_file": output_file,
+            "dedup_output_file": dedup_output_file,
+        })
 
         return sno, output_file
 
@@ -208,42 +282,61 @@ class BusinessScraper:
 
         locations = load_locations(self.config.locations_file)
         if not locations:
-            print(f"No locations found in {self.config.locations_file}!", flush=True)
+            self.log(f"No locations found in {self.config.locations_file}!")
+            self.emit_progress({
+                "type": "error",
+                "message": f"No locations found in {self.config.locations_file}!",
+            })
             return
 
         total_locations = len(locations)
         cpu_threads = os.cpu_count() or 1
         num_workers = min(total_locations, max(1, self.config.max_workers or 1))
 
-        print("=" * 65, flush=True)
-        print(f"Loaded {total_locations} locations from {self.config.locations_file}.", flush=True)
-        print(f"Configured Radius : {self.config.radius_km} km per location.", flush=True)
-        print(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).", flush=True)
-        print(f"Global Rate Limit : {self.config.max_qps:.1f} requests/sec across all threads (Google Cloud safe).", flush=True)
-        print("Interrupt Guide   : Press Ctrl+C at any time for graceful shutdown.", flush=True)
-        print("=" * 65, flush=True)
+        self.log("=" * 65)
+        self.log(f"Loaded {total_locations} locations from {self.config.locations_file}.")
+        self.log(f"Configured Radius : {self.config.radius_km} km per location.")
+        self.log(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).")
+        self.log(f"Global Rate Limit : {self.config.max_qps:.1f} requests/sec across all threads (Google Cloud safe).")
+        self.log("Interrupt Guide   : Press Ctrl+C at any time for graceful shutdown.")
+        self.log("=" * 65)
+
+        self.emit_progress({
+            "type": "run_start",
+            "total_locations": total_locations,
+            "num_workers": num_workers,
+            "radius_km": self.config.radius_km,
+        })
 
         # Pre-flight check with the first location
         if not self.client.check_api_key(locations[0]["lat"], locations[0]["lng"]):
-            print("Aborting run due to API authorization/billing error.", flush=True)
+            self.log("Aborting run due to API authorization/billing error.")
+            self.emit_progress({
+                "type": "error",
+                "message": "Aborting run due to Google Places API authorization or billing error.",
+            })
             return
 
-        print(f"Starting scrape across {num_workers} thread(s)...\n", flush=True)
+        self.log(f"Starting scrape across {num_workers} thread(s)...\n")
 
         summary: List[Tuple[int, str, int, str]] = []
 
-        # Graceful signal handler setup
-        def _handle_interrupt(signum: int, frame: Any) -> None:
-            if not self.stop_event.is_set():
-                print("\n\n[!] Interrupt signal received (Ctrl+C). Initiating graceful shutdown...", flush=True)
-                self.stop_event.set()
-
-        original_sigint = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGINT, _handle_interrupt)
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        original_sigint = None
+        original_sigterm = None
         has_sigterm = hasattr(signal, "SIGTERM")
-        original_sigterm = signal.getsignal(signal.SIGTERM) if has_sigterm else None
-        if has_sigterm:
-            signal.signal(signal.SIGTERM, _handle_interrupt)
+
+        if is_main_thread:
+            def _handle_interrupt(signum: int, frame: Any) -> None:
+                if not self.stop_event.is_set():
+                    self.log("\n\n[!] Interrupt signal received (Ctrl+C). Initiating graceful shutdown...")
+                    self.stop_event.set()
+
+            original_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, _handle_interrupt)
+            original_sigterm = signal.getsignal(signal.SIGTERM) if has_sigterm else None
+            if has_sigterm:
+                signal.signal(signal.SIGTERM, _handle_interrupt)
 
         try:
             if num_workers == 1:
@@ -256,7 +349,7 @@ class BusinessScraper:
                             summary.append((i, loc["name"], count, outfile))
                     except Exception as exc:
                         if not self.stop_event.is_set():
-                            print(f"[ERROR] Location [{i}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+                            self.log(f"[ERROR] Location [{i}/{total_locations}] '{loc['name']}' failed: {exc}")
             else:
                 with ThreadPoolExecutor(max_workers=num_workers) as executor:
                     future_to_loc = {
@@ -275,42 +368,50 @@ class BusinessScraper:
                                     summary.append((idx, loc["name"], count, outfile))
                             except Exception as exc:
                                 if not self.stop_event.is_set():
-                                    print(f"[ERROR] Location [{idx}/{total_locations}] '{loc['name']}' failed: {exc}", flush=True)
+                                    self.log(f"[ERROR] Location [{idx}/{total_locations}] '{loc['name']}' failed: {exc}")
 
                             if self.stop_event.is_set():
                                 executor.shutdown(wait=False, cancel_futures=True)
                                 break
                     except KeyboardInterrupt:
-                        print("\n[!] Ctrl+C detected. Cancelling remaining threads...", flush=True)
+                        self.log("\n[!] Ctrl+C detected. Cancelling remaining threads...")
                         self.stop_event.set()
                         executor.shutdown(wait=False, cancel_futures=True)
         except KeyboardInterrupt:
-            print("\n[!] Ctrl+C caught during execution.", flush=True)
+            self.log("\n[!] Ctrl+C caught during execution.")
             self.stop_event.set()
         finally:
-            # Restore initial signal handlers
-            signal.signal(signal.SIGINT, original_sigint)
-            if has_sigterm and original_sigterm:
-                signal.signal(signal.SIGTERM, original_sigterm)
+            if is_main_thread and original_sigint is not None:
+                signal.signal(signal.SIGINT, original_sigint)
+                if has_sigterm and original_sigterm:
+                    signal.signal(signal.SIGTERM, original_sigterm)
 
         # Sort summary by original location index
         summary.sort(key=lambda item: item[0])
 
         if self.stop_event.is_set():
-            print("\n" + "=" * 70, flush=True)
-            print("SCRAPER STOPPED BY USER (GRACEFUL EXIT COMPLETE)", flush=True)
-            print("=" * 70, flush=True)
+            self.log("\n" + "=" * 70)
+            self.log("SCRAPER STOPPED BY USER (GRACEFUL EXIT COMPLETE)")
+            self.log("=" * 70)
             if summary:
-                print(f"Fully completed {len(summary)} of {total_locations} locations before stop:", flush=True)
+                self.log(f"Fully completed {len(summary)} of {total_locations} locations before stop:")
                 for idx, name, count, outfile in summary:
-                    print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)
+                    self.log(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}")
             else:
-                print("Interrupted before any single location finished all 150 categories.", flush=True)
-            print("All CSV files were cleanly flushed to disk. No corrupted data.", flush=True)
-            print("=" * 70 + "\n", flush=True)
+                self.log("Interrupted before any single location finished all selected categories.")
+            self.log("All CSV files were cleanly flushed to disk. No corrupted data.")
+            self.log("=" * 70 + "\n")
         else:
-            print("\n" + "=" * 70, flush=True)
-            print("ALL LOCATIONS COMPLETED", flush=True)
-            print("=" * 70, flush=True)
+            self.log("\n" + "=" * 70)
+            self.log("ALL LOCATIONS COMPLETED")
+            self.log("=" * 70)
             for idx, name, count, outfile in summary:
-                print(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}", flush=True)
+                self.log(f"[{idx:02d}] {name[:38]:<38} -> {count:4d} places | {outfile}")
+
+        self.emit_progress({
+            "type": "run_finish",
+            "total_locations": total_locations,
+            "completed_locations": len(summary),
+            "summary": summary,
+            "interrupted": self.stop_event.is_set(),
+        })

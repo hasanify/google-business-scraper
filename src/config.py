@@ -7,7 +7,7 @@ CPU core/thread detection for concurrency, API quota rate limits, and runtime co
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 
 def load_dotenv(env_path: Optional[Path] = None) -> None:
@@ -69,6 +69,7 @@ class ScraperConfig:
     max_qps: float = 10.0
     max_retries: int = 4
     retry_backoff: float = 1.5
+    selected_categories: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
         """Resolve API key and dynamic CPU-based worker count if not explicitly set."""

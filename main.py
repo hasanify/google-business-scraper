@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Clean text fields (names, addresses) and re-encode existing CSV files with UTF-8 BOM",
     )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Launch the desktop graphical user interface (GUI)",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +73,11 @@ def main() -> None:
     """Run scraper with command-line or default configuration."""
     try:
         args = parse_args()
+        if args.gui:
+            from src.gui import launch_gui
+            launch_gui()
+            return
+
         if args.clean_existing:
             out_dir = args.output_dir
             dedup_dir = args.dedup_output_dir or f"{args.output_dir}_deduplicated"
