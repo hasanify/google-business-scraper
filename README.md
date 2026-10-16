@@ -198,6 +198,7 @@ Each file contains the following fields:
 | `source_group` | Scraped category group | `food_and_drink` |
 | `primary_type` | Specific Google Places type | `coffee_shop` |
 | `opening_hours` | Compressed schedule summary | `Mon-Sun 08:00-23:00` |
+| `tag` | Sanitized location identifier slug | `"dlf_promenade"` |
 
 ---
 
