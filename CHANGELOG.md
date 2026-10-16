@@ -2,6 +2,17 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+## [1.2.4](https://github.com/hasanify/google-business-scraper/compare/v1.2.3...v1.2.4) (2026-10-16)
+
+
+### Bug Fixes
+
+* **gui:** dynamically display app version from release tag ([aa02eed](https://github.com/hasanify/google-business-scraper/commit/aa02eed13beb9515cf29c7cedc7b4c44759516c4))
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 ## [1.2.3] - 2026-10-16
 
 ### Documentation
