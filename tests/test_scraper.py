@@ -295,17 +295,18 @@ class TestDualVariantGeneration(unittest.TestCase):
             )
             scraper = BusinessScraper(cfg)
 
-            # Mock search_text_paginated to return 3 places:
-            # 1: valid phone + valid review count (kept in dedup)
-            # 2: valid phone but NO review count (filtered out from dedup)
-            # 3: no phone (filtered out from dedup)
+            # Mock search_text_paginated to return 4 places:
+            # 1: multiple numbers (landline + mobile) -> should pick mobile WhatsApp number
+            # 2: valid phone but NO review count -> filtered out from dedup
+            # 3: no phone -> filtered out from dedup
+            # 4: landline only -> filtered out from dedup (not on WhatsApp)
             mock_places = [
                 {
                     "id": "place_1",
                     "displayName": {"text": "Store With Phone - Lajpat Nagar Branch"},
                     "formattedAddress": "123 Main St",
                     "location": {"latitude": 28.5, "longitude": 77.2},
-                    "internationalPhoneNumber": "+91 98765 43210",
+                    "internationalPhoneNumber": "+91 11 4767 4000 / +91 98765 43210",
                     "userRatingCount": 25,
                     "rating": 4.5,
                     "businessStatus": "OPERATIONAL",
@@ -326,6 +327,15 @@ class TestDualVariantGeneration(unittest.TestCase):
                     "location": {"latitude": 28.5, "longitude": 77.2},
                     "internationalPhoneNumber": None,
                     "userRatingCount": 10,
+                    "businessStatus": "OPERATIONAL",
+                },
+                {
+                    "id": "place_4",
+                    "displayName": {"text": "Store With Landline Only"},
+                    "formattedAddress": "101 Ring Rd",
+                    "location": {"latitude": 28.5, "longitude": 77.2},
+                    "internationalPhoneNumber": "+91 11 4614 6666",
+                    "userRatingCount": 18,
                     "businessStatus": "OPERATIONAL",
                 },
             ]
@@ -352,11 +362,12 @@ class TestDualVariantGeneration(unittest.TestCase):
             with open(dedup_outfile, "r", encoding="utf-8-sig") as f:
                 dedup_rows = list(csv.DictReader(f))
 
-            # All 3 places in raw CSV
-            self.assertEqual(len(all_rows), 3)
+            # All 4 places in raw CSV
+            self.assertEqual(len(all_rows), 4)
             self.assertIn("review_count", all_rows[0])
 
-            # Only place_1 (valid phone + valid review count) in dedup CSV
+            # Only place_1 (valid review count + mobile WhatsApp number prioritized over landline)
+            # place_4 (landline only) is automatically filtered out from WhatsApp deduplicated export
             self.assertEqual(len(dedup_rows), 1)
             self.assertEqual(dedup_rows[0]["sno"], "1")
             self.assertEqual(dedup_rows[0]["business_name"], "Store With Phone - Lajpat Nagar Branch")
@@ -364,7 +375,8 @@ class TestDualVariantGeneration(unittest.TestCase):
             self.assertEqual(dedup_rows[0]["short_name"], "Store With Phone")
             self.assertEqual(dedup_rows[0]["review_count"], "25")
             self.assertTrue(bool(dedup_rows[0]["business_goal"]))
-            self.assertEqual(dedup_rows[0]["phone"], "+91 98765 43210")
+            # Prioritized WhatsApp mobile number (+91 98765 43210) over landline (+91 11 4767 4000)
+            self.assertIn("98765", dedup_rows[0]["phone"])
             self.assertEqual(dedup_rows[0]["tag"], "test_hub")
 
 
@@ -423,6 +435,56 @@ class TestBedrockEnricher(unittest.TestCase):
         result = enricher.enrich_records(records)
         self.assertEqual(result[0]["short_name"], "TATA Showroom")
         self.assertEqual(result[0]["business_goal"], "more test drives")
+
+
+class TestWhatsAppPhone(unittest.TestCase):
+    """Test WhatsApp phone number validation, extraction, and priority selection."""
+
+    def test_extract_phone_candidates_single_and_multiple(self):
+        """Should split multiple numbers separated by slash, comma, or pipe."""
+        from src.utils.whatsapp_phone import extract_phone_candidates
+
+        single = extract_phone_candidates("+91 98718 64545")
+        self.assertEqual(len(single), 1)
+
+        multi = extract_phone_candidates("+91 11 4767 4000 / +91 95608 50044")
+        self.assertEqual(len(multi), 2)
+        self.assertIn("+91 11 4767 4000", multi)
+        self.assertIn("+91 95608 50044", multi)
+
+    def test_is_whatsapp_number(self):
+        """Should recognize valid mobiles as WhatsApp capable and reject landlines/toll-free."""
+        from src.utils.whatsapp_phone import is_whatsapp_number
+
+        self.assertTrue(is_whatsapp_number("+91 98718 64545"))
+        self.assertTrue(is_whatsapp_number("+91 95608 50044"))
+        self.assertTrue(is_whatsapp_number("09871864545"))
+
+        # Landlines & toll-free should be rejected
+        self.assertFalse(is_whatsapp_number("+91 11 4614 6666"))
+        self.assertFalse(is_whatsapp_number("+91 80 6251 4723"))
+        self.assertFalse(is_whatsapp_number("+91 120 458 1260"))
+        self.assertFalse(is_whatsapp_number("+91 1800 203 4044"))
+
+    def test_select_best_whatsapp_number_priority(self):
+        """Should prioritize mobile over landline when multiple numbers are present."""
+        from src.utils.whatsapp_phone import select_best_whatsapp_number
+
+        # Multiple candidates: 1 landline, 1 mobile
+        best = select_best_whatsapp_number(["+91 11 4767 4000", "+91 95608 50044"])
+        self.assertIsNotNone(best)
+        self.assertIn("95608", best)
+
+        # Candidates with only landlines should return None
+        only_landline = select_best_whatsapp_number(["+91 11 4614 6666", "+91 80 6251 4723"])
+        self.assertIsNone(only_landline)
+
+    def test_get_wa_link(self):
+        """Should generate canonical wa.me link for international outreach."""
+        from src.utils.whatsapp_phone import get_wa_link
+
+        link = get_wa_link("+91 98718 64545")
+        self.assertEqual(link, "https://wa.me/919871864545")
 
 
 if __name__ == "__main__":

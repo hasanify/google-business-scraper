@@ -26,6 +26,10 @@ from .constants import CSV_FIELDNAMES, DEDUP_CSV_FIELDNAMES, KEYWORD_GROUPS
 from .geo.vincenty import vincenty_km
 from .utils.formatters import clean_text, compress_opening_hours, sanitize_filename
 from .utils.io import ensure_output_dir, load_locations
+from .utils.whatsapp_phone import (
+    extract_phone_candidates,
+    select_best_whatsapp_number,
+)
 
 
 class BusinessScraper:
@@ -140,8 +144,7 @@ class BusinessScraper:
         })
 
         seen: Set[str] = set()
-        dedup_seen: Set[str] = set()
-        dedup_candidates: List[Dict[str, Any]] = []
+        dedup_candidates_map: Dict[str, Dict[str, Any]] = {}
         sno = 0
         dedup_sno = 0
 
@@ -226,12 +229,16 @@ class BusinessScraper:
                             }
                             writer.writerow(row_data)
 
-                            # Candidate check for deduplicated export:
-                            # Must have valid phone, valid review_count, and valid name
+                            # Candidate collection for deduplicated export:
+                            # Must have candidate phone(s), valid review_count, and valid name
+                            raw_int_phone = place.get("internationalPhoneNumber") or ""
+                            raw_nat_phone = place.get("nationalPhoneNumber") or ""
+                            extracted_cands: Set[str] = set()
+                            for p_str in (raw_int_phone, raw_nat_phone, phone):
+                                if p_str:
+                                    extracted_cands.update(extract_phone_candidates(p_str))
+
                             raw_reviews = place.get("userRatingCount")
-                            has_phone = bool(
-                                phone and phone.strip().lower() not in ("none", "null", "nan", "n/a", "-")
-                            )
                             has_reviews = (
                                 raw_reviews is not None
                                 and str(raw_reviews).strip() != ""
@@ -242,10 +249,22 @@ class BusinessScraper:
                                 and row_data["name"].strip()
                                 and row_data["name"].strip().lower() not in ("none", "null", "nan")
                             )
-                            if has_phone and has_reviews and has_biz_name and pid not in dedup_seen:
-                                dedup_seen.add(pid)
-                                dedup_candidates.append(dict(row_data))
-                                dedup_sno = len(dedup_candidates)
+
+                            if extracted_cands and has_reviews and has_biz_name:
+                                dedup_key = pid or (
+                                    row_data["name"].strip().lower(),
+                                    row_data["address"].strip().lower(),
+                                )
+                                if dedup_key not in dedup_candidates_map:
+                                    rec = dict(row_data)
+                                    rec["_phone_candidates"] = set(extracted_cands)
+                                    dedup_candidates_map[dedup_key] = rec
+                                else:
+                                    dedup_candidates_map[dedup_key]["_phone_candidates"].update(
+                                        extracted_cands
+                                    )
+
+                                dedup_sno = len(dedup_candidates_map)
 
                             self.emit_progress({
                                 "type": "place_found",
@@ -262,21 +281,34 @@ class BusinessScraper:
                         if self.stop_event.wait(self.config.inter_query_delay):
                             break
             finally:
-                # Perform Bedrock enrichment & cleanup filtering on deduplicated candidates
+                # Perform WhatsApp validation, priority selection, Bedrock enrichment & cleanup
                 if dedup_output_file:
-                    if dedup_candidates:
+                    # Select WhatsApp number (prioritize mobile over landline), filter out non-WhatsApp
+                    valid_dedup_candidates: List[Dict[str, Any]] = []
+                    for rec in dedup_candidates_map.values():
+                        cands = list(rec.get("_phone_candidates", set()))
+                        best_wa_phone = select_best_whatsapp_number(cands)
+                        if not best_wa_phone:
+                            # Not a WhatsApp-capable number (landline/toll-free/invalid) -> remove entry
+                            continue
+                        rec_copy = dict(rec)
+                        rec_copy["phone"] = best_wa_phone
+                        rec_copy.pop("_phone_candidates", None)
+                        valid_dedup_candidates.append(rec_copy)
+
+                    if valid_dedup_candidates:
                         self.log(
-                            f"{tag} Enriching {len(dedup_candidates)} places with Bedrock (short_name & business_goal)..."
+                            f"{tag} Enriching {len(valid_dedup_candidates)} WhatsApp-verified places with Bedrock..."
                         )
                         if self.enricher and self.config.enable_enrichment:
                             enriched_records = self.enricher.enrich_records(
-                                dedup_candidates,
+                                valid_dedup_candidates,
                                 batch_size=25,
                                 log_callback=self.log,
                             )
                         else:
                             enriched_records = []
-                            for r in dedup_candidates:
+                            for r in valid_dedup_candidates:
                                 er = dict(r)
                                 er["short_name"] = heuristic_short_name(er.get("name", ""))
                                 er["business_goal"] = heuristic_business_goal(

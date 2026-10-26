@@ -8,7 +8,7 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 
 - **High-Precision Geodesy:** Uses Vincenty's direct and inverse formulas on the **WGS-84 reference ellipsoid** for exact metric geodesic distance filtering and bounding-box restrictions.
 - **Broad Industry Taxonomy:** Preconfigured across 10 major category groups and 150+ Google Place types (automotive, entertainment, food & drink, sports, shopping, services, culture, education, finance, facilities).
-- **Intelligent Deduplication:** Enforces unique Google Place ID tracking across multiple keyword scans for each target location.
+- **Intelligent Deduplication & WhatsApp Prioritization:** Enforces unique Google Place ID tracking across multiple keyword scans for each target location. When businesses have multiple phone numbers, prioritizes valid WhatsApp mobile numbers over landlines/toll-free numbers, and automatically excludes listings without a valid WhatsApp-capable contact from deduplicated exports.
 - **Operating Hours Compression:** Compresses raw daily scheduling periods into compact, readable range strings (e.g., `Mon-Fri 09:00-18:00 | Sat 10:00-16:00`).
 - **Text Sanitization & Excel Compatibility:** Automatically strips non-Latin scripts (e.g., Devanagari/Hindi, Arabic), normalizes accents (`Café` -> `Cafe`, `Škoda` -> `Skoda`) and stylized typography to clean ASCII, and exports files with UTF-8 BOM (`utf-8-sig`) to eliminate spreadsheet mojibake.
 - **Multi-Threaded Parallel Execution:** Scrapes multiple target locations concurrently using a worker thread pool (one location per thread) for high performance and minimal turnaround time.
@@ -46,7 +46,8 @@ google-business-scraper/
 │   └── utils/
 │       ├── __init__.py
 │       ├── formatters.py     # Opening hours compression, text sanitization & filename sanitization
-│       └── io.py             # CSV location parser, directory managers & CSV cleanup utilities
+│       ├── io.py             # CSV location parser, directory managers & CSV cleanup utilities
+│       └── whatsapp_phone.py # Phone candidate extraction, WhatsApp mobile detection & priority selection
 ├── scripts/
 │   └── prepare_release.py    # Release build orchestrator for semantic-release
 ├── tests/
@@ -215,7 +216,7 @@ Each file contains the following fields:
 
 ### Deduplicated & Enriched CSV Schema (`data/<output-dir>_deduplicated/`)
 
-Files saved in the `_deduplicated` directory contain unique POIs filtered to valid phone numbers and enriched with AWS Bedrock. Any entries where `review_count`, `business_name`, `short_name`, or `business_goal` is missing are automatically cleaned and excluded:
+Files saved in the `_deduplicated` directory contain unique POIs filtered to validated WhatsApp-capable mobile phone numbers and enriched with AWS Bedrock. Any entries where `review_count`, `business_name`, `short_name`, `business_goal`, or a valid WhatsApp phone is missing are automatically excluded:
 
 | Column | Description | Example |
 | :--- | :--- | :--- |
