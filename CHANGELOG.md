@@ -2,6 +2,18 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+# [1.3.0](https://github.com/hasanify/google-business-scraper/compare/v1.2.4...v1.3.0) (2026-10-26)
+
+
+### Features
+
+* **scraper:** add Bedrock enrichment and dedup cleanup ([1ddd9e5](https://github.com/hasanify/google-business-scraper/commit/1ddd9e5cb8de47c114c99560ba0ebe17c6a996ec))
+* **scraper:** prioritize WhatsApp numbers in dedup ([e1232fd](https://github.com/hasanify/google-business-scraper/commit/e1232fdc8ad60b88970207df77605bd3c63929a4))
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 ## [1.2.4](https://github.com/hasanify/google-business-scraper/compare/v1.2.3...v1.2.4) (2026-10-16)
 
 
