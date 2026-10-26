@@ -13,6 +13,7 @@ from ..config import ScraperConfig
 from ..scraper import BusinessScraper
 from ..version import __version__
 from .tabs.dashboard_tab import DashboardTab
+from .tabs.data_explorer_tab import DataExplorerTab
 from .tabs.locations_tab import LocationsTab
 from .tabs.viewer_tab import ViewerTab
 from .theme import ThemeColors, setup_theme
@@ -55,13 +56,13 @@ class ScraperApp(tk.Tk):
 
         ttk.Label(
             title_box,
-            text="Google Business Scraper",
+            text="Business Finder",
             style="AppTitle.TLabel",
         ).pack(anchor="w")
 
         ttk.Label(
             title_box,
-            text="Google Places (New) POI Aggregation & WGS-84 Geodesic Verification Engine",
+            text="Find local businesses and verified phone numbers around your search locations",
             font=("Segoe UI", 9),
             foreground=ThemeColors.TEXT_MUTED,
             background=ThemeColors.BG_DARK,
@@ -73,7 +74,7 @@ class ScraperApp(tk.Tk):
         ver_str = __version__ if __version__.startswith("v") else f"v{__version__}"
         self.version_label = ttk.Label(
             ver_box,
-            text=f"{ver_str} • Production Ready",
+            text=f"{ver_str} • Ready",
             font=("Segoe UI", 9, "bold"),
             foreground=ThemeColors.PRIMARY,
             background=ThemeColors.BG_DARK,
@@ -81,25 +82,35 @@ class ScraperApp(tk.Tk):
         self.version_label.pack(anchor="e")
 
     def _build_notebook(self) -> None:
-        """Tabbed notebook container."""
+        """Tabbed notebook container (2 simple tabs)."""
         self.notebook = ttk.Notebook(self, style="TNotebook")
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 10))
 
-        # Tab 1: Dashboard
+        # Tab 1: Search Dashboard
         self.dashboard_tab = DashboardTab(
             self.notebook,
             on_start_scrape=self.start_scraping,
             on_stop_scrape=self.stop_scraping,
         )
-        self.notebook.add(self.dashboard_tab, text="  Scraper Dashboard  ")
+        self.notebook.add(self.dashboard_tab, text="  ⚡ Search & Run  ")
 
-        # Tab 2: Locations Manager
-        self.locations_tab = LocationsTab(self.notebook, default_csv="locations.csv")
-        self.notebook.add(self.locations_tab, text="  Locations Manager  ")
+        # Tab 2: Saved Data & Locations
+        self.data_explorer_tab = DataExplorerTab(
+            self.notebook,
+            default_results_dir="./data/google",
+            default_locations_csv="locations.csv",
+        )
+        self.notebook.add(self.data_explorer_tab, text="  📊 Saved Data & Locations  ")
 
-        # Tab 3: CSV Data Viewer & Tools
-        self.viewer_tab = ViewerTab(self.notebook, default_dir="./data/google")
-        self.notebook.add(self.viewer_tab, text="  Results Viewer & Tools  ")
+    @property
+    def locations_tab(self) -> LocationsTab:
+        """Access the target locations manager inside data explorer."""
+        return self.data_explorer_tab.locations_view
+
+    @property
+    def viewer_tab(self) -> ViewerTab:
+        """Access the scraped results viewer inside data explorer."""
+        return self.data_explorer_tab.results_view
 
     # --- Background Worker Management ---
 

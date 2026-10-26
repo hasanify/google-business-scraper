@@ -29,12 +29,13 @@ class TestGUIComponents(unittest.TestCase):
         cls.app.destroy()
 
     def test_app_structure(self) -> None:
-        """Verify that the ScraperApp creates all three primary tabs."""
+        """Verify that the ScraperApp creates 2 streamlined tabs with sub-views."""
         self.assertIsNotNone(self.app.dashboard_tab)
+        self.assertIsNotNone(self.app.data_explorer_tab)
         self.assertIsNotNone(self.app.locations_tab)
         self.assertIsNotNone(self.app.viewer_tab)
         tabs = self.app.notebook.tabs()
-        self.assertEqual(len(tabs), 3)
+        self.assertEqual(len(tabs), 2)
 
     def test_version_display(self) -> None:
         """Verify that the header version label dynamically reflects __version__."""
@@ -42,7 +43,16 @@ class TestGUIComponents(unittest.TestCase):
 
         expected_prefix = __version__ if __version__.startswith("v") else f"v{__version__}"
         self.assertTrue(self.app.version_label["text"].startswith(expected_prefix))
-        self.assertIn("Production Ready", self.app.version_label["text"])
+        self.assertIn("Ready", self.app.version_label["text"])
+
+    def test_dashboard_advanced_drawer(self) -> None:
+        """Verify that advanced settings drawer expands and collapses properly."""
+        dash = self.app.dashboard_tab
+        self.assertFalse(dash.advanced_expanded_var.get())
+        dash._toggle_advanced_drawer()
+        self.assertTrue(dash.advanced_expanded_var.get())
+        dash._toggle_advanced_drawer()
+        self.assertFalse(dash.advanced_expanded_var.get())
 
     def test_dashboard_categories(self) -> None:
         """Verify category select all / deselect all toggles."""

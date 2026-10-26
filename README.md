@@ -42,8 +42,8 @@ google-business-scraper/
 │   ├── gui/
 │   │   ├── __init__.py       # GUI package initialization
 │   │   ├── app.py            # ScraperApp main window & worker thread queue
-│   │   ├── theme.py          # Dark-slate theme, typography & DPI scaling
-│   │   └── tabs/             # Dashboard, Locations Manager & Results Viewer tabs
+│   │   ├── theme.py          # Windows 11 Light Mode theme, typography & DPI scaling
+│   │   └── tabs/             # Search Dashboard & Saved Data Explorer tabs
 │   └── utils/
 │       ├── __init__.py
 │       ├── formatters.py     # Opening hours compression, text sanitization & filename sanitization
@@ -159,9 +159,8 @@ python main.py --gui
 ```
 
 **Desktop GUI Features:**
-- **Scraper Dashboard:** Configure Google Places API key and AWS Bedrock AI parameters (bearer token with show/hide toggle, AWS region, model ID, toggle AI enrichment, save to `.env`), target CSV file, output directories, search radius, concurrency worker count, max QPS, and category checklists with a real-time progress bar, live metrics cards, streaming console log, and start/stop controls.
-- **Locations Manager:** View, filter, add, edit, delete, and save target coordinates directly within an interactive table with latitude/longitude bounds validation.
-- **Results Viewer & Tools:** Browse and search scraped business records, view key metrics (total places, valid phone count, average rating), open CSVs directly in Excel or folder in Explorer, and run one-click text sanitization with UTF-8 BOM encoding.
+- **Search & Run:** Clean, streamlined interface showing real-time connection status (`✓ Google Search Connected`, `✓ AI Assistant Active`), loaded locations counter, search distance, business type checkboxes, live progress and metrics, and prominent Start/Stop search buttons. Advanced technical controls (Google API keys, Amazon Bedrock keys/regions, simultaneous search counts, speed, and save folders) are cleanly organized inside an expandable settings drawer.
+- **Saved Data & Locations:** Modern 2-in-1 data explorer with an instant switcher between **Found Businesses** (browse search records, phone numbers, ratings, Excel opener, and format fix tool) and **Search Locations** (interactive locations editor to view, add, edit, delete, and save target search coordinates).
 
 ---
 

@@ -39,7 +39,7 @@ class ViewerTab(ttk.Frame):
         top_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
 
         # Output folder picker
-        ttk.Label(top_bar, text="Results Directory:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(top_bar, text="Results Folder:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Entry(top_bar, textvariable=self.directory_var, style="TEntry", width=28).pack(
             side=tk.LEFT, padx=(0, 6)
         )
@@ -47,7 +47,7 @@ class ViewerTab(ttk.Frame):
         ttk.Button(top_bar, text="Refresh", command=self.refresh_files).pack(side=tk.LEFT, padx=(0, 12))
 
         # CSV File dropdown
-        ttk.Label(top_bar, text="Select CSV:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(top_bar, text="Choose File:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
         self.file_combo = ttk.Combobox(
             top_bar,
             textvariable=self.selected_file_var,
@@ -60,7 +60,7 @@ class ViewerTab(ttk.Frame):
         # Cleanup Tool Button
         ttk.Button(
             top_bar,
-            text="🧹 Clean Text & UTF-8 BOM",
+            text="🧹 Fix Excel Formatting",
             style="Primary.TButton",
             command=self._run_cleanup_tool,
         ).pack(side=tk.RIGHT)
@@ -69,14 +69,14 @@ class ViewerTab(ttk.Frame):
         stats_card = ttk.Frame(self, style="Card.TFrame", padding=10)
         stats_card.pack(fill=tk.X, padx=8, pady=4)
 
-        self._create_metric_widget(stats_card, "Total Businesses", self.total_rows_var, "#3b82f6")
-        self._create_metric_widget(stats_card, "With Phone Numbers", self.with_phone_var, "#10b981")
-        self._create_metric_widget(stats_card, "Average Rating", self.avg_rating_var, "#f59e0b")
+        self._create_metric_widget(stats_card, "Total Businesses", self.total_rows_var, "#0067b8")
+        self._create_metric_widget(stats_card, "With Phone Numbers", self.with_phone_var, "#0e703c")
+        self._create_metric_widget(stats_card, "Average Rating", self.avg_rating_var, "#ca5010")
 
         # Search row
         search_box = ttk.Frame(stats_card, style="Card.TFrame")
         search_box.pack(side=tk.RIGHT, fill=tk.Y, padx=4)
-        ttk.Label(search_box, text="Filter Table:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(search_box, text="Search records:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
         s_entry = ttk.Entry(search_box, textvariable=self.search_var, style="TEntry", width=24)
         s_entry.pack(side=tk.LEFT)
         s_entry.bind("<KeyRelease>", lambda e: self._filter_table())
@@ -111,9 +111,9 @@ class ViewerTab(ttk.Frame):
             "name": ("Business Name", 260, "w"),
             "phone": ("Phone Number", 150, "center"),
             "rating": ("Rating", 70, "center"),
-            "primary_type": ("Place Type", 140, "w"),
-            "distance_km": ("Dist (km)", 80, "center"),
-            "address": ("Formatted Address", 340, "w"),
+            "primary_type": ("Category", 140, "w"),
+            "distance_km": ("Distance (km)", 90, "center"),
+            "address": ("Address", 340, "w"),
         }
         for col, (title, width, anchor) in headers.items():
             self.tree.heading(col, text=title, anchor=anchor)
@@ -306,9 +306,8 @@ class ViewerTab(ttk.Frame):
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Cleanup",
-            f"Run text sanitization (remove non-Latin scripts, normalize accents) "
-            f"and re-encode CSV files with UTF-8 BOM in:\n"
+            "Fix Excel Formatting",
+            f"Fix text formatting and characters so spreadsheets open cleanly in Microsoft Excel in:\n"
             + "\n".join(f"- {d}" for d in dirs)
             + "\n\nProceed?",
         )
@@ -318,9 +317,9 @@ class ViewerTab(ttk.Frame):
         summary = clean_all_csv_files(dirs)
         self.refresh_files()
         messagebox.showinfo(
-            "Cleanup Complete",
-            f"Cleanup finished successfully:\n\n"
-            f"• Files processed: {summary['files_processed']}\n"
-            f"• Total rows examined: {summary['total_rows']}\n"
-            f"• Rows sanitized & updated: {summary['modified_rows']}",
+            "Formatting Fixed",
+            f"Spreadsheets fixed successfully:\n\n"
+            f"• Files updated: {summary['files_processed']}\n"
+            f"• Total rows checked: {summary['total_rows']}\n"
+            f"• Rows cleaned: {summary['modified_rows']}",
         )

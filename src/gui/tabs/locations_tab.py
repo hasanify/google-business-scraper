@@ -32,7 +32,7 @@ class LocationsTab(ttk.Frame):
         top_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
 
         # File selector row
-        ttk.Label(top_bar, text="Locations CSV:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(top_bar, text="Locations File:", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Entry(top_bar, textvariable=self.filepath_var, style="TEntry", width=36).pack(
             side=tk.LEFT, padx=(0, 6)
         )
@@ -40,7 +40,7 @@ class LocationsTab(ttk.Frame):
         ttk.Button(top_bar, text="Reload", command=self._reload_current).pack(side=tk.LEFT, padx=(0, 12))
 
         # Search filter
-        ttk.Label(top_bar, text="Search:", style="Card.TLabel").pack(side=tk.LEFT, padx=(10, 6))
+        ttk.Label(top_bar, text="Search locations:", style="Card.TLabel").pack(side=tk.LEFT, padx=(10, 6))
         search_entry = ttk.Entry(top_bar, textvariable=self.search_var, style="TEntry", width=20)
         search_entry.pack(side=tk.LEFT, padx=(0, 6))
         search_entry.bind("<KeyRelease>", lambda e: self._filter_table())
@@ -70,7 +70,7 @@ class LocationsTab(ttk.Frame):
 
         # Setup columns
         self.tree.heading("sno", text="#", anchor="center")
-        self.tree.heading("name", text="Location Name / Description", anchor="w")
+        self.tree.heading("name", text="Location Name", anchor="w")
         self.tree.heading("lat", text="Latitude", anchor="center")
         self.tree.heading("lng", text="Longitude", anchor="center")
 
@@ -94,7 +94,7 @@ class LocationsTab(ttk.Frame):
         ttk.Button(toolbar, text="Delete Selected", command=self._delete_selected_location).pack(
             side=tk.LEFT, padx=(0, 6)
         )
-        ttk.Button(toolbar, text="Save to File", style="Success.TButton", command=self._save_locations_to_disk).pack(
+        ttk.Button(toolbar, text="Save Changes", style="Success.TButton", command=self._save_locations_to_disk).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         ttk.Button(toolbar, text="Save As...", command=self._save_locations_as).pack(
