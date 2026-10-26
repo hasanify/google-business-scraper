@@ -54,6 +54,43 @@ class TestGUIComponents(unittest.TestCase):
         dash._toggle_advanced_drawer()
         self.assertFalse(dash.advanced_expanded_var.get())
 
+    def test_dashboard_location_selection(self) -> None:
+        """Verify selecting, deselecting, and manual addition of locations."""
+        dash = self.app.dashboard_tab
+        # Populate test locations
+        dash.active_locations = [
+            {"name": "Spot A", "lat": 28.5, "lng": 77.2, "selected": tk.BooleanVar(value=True)},
+            {"name": "Spot B", "lat": 28.6, "lng": 77.3, "selected": tk.BooleanVar(value=True)},
+        ]
+        dash._render_location_items()
+        self.assertEqual(len(dash.active_locations), 2)
+
+        # Deselect all
+        dash._deselect_all_locations()
+        for loc in dash.active_locations:
+            self.assertFalse(loc["selected"].get())
+
+        # Select all
+        dash._select_all_locations()
+        for loc in dash.active_locations:
+            self.assertTrue(loc["selected"].get())
+
+        # Manually add location
+        dash.active_locations.append({
+            "name": "Spot C",
+            "lat": 28.7,
+            "lng": 77.4,
+            "selected": tk.BooleanVar(value=True),
+        })
+        dash._render_location_items()
+        self.assertEqual(len(dash.active_locations), 3)
+
+        # Remove location
+        dash._remove_location_at(1)
+        self.assertEqual(len(dash.active_locations), 2)
+        self.assertEqual(dash.active_locations[0]["name"], "Spot A")
+        self.assertEqual(dash.active_locations[1]["name"], "Spot C")
+
     def test_dashboard_categories(self) -> None:
         """Verify category select all / deselect all toggles."""
         dash = self.app.dashboard_tab

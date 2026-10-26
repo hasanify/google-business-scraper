@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ...config import DEFAULT_CONFIG, ScraperConfig, get_default_workers
 from ...constants import KEYWORD_GROUPS
+from ...utils.io import load_locations
 from ..theme import ThemeColors
 
 
@@ -34,6 +35,9 @@ class DashboardTab(ttk.Frame):
         self.radius_var = tk.DoubleVar(value=3.0)
         self.workers_var = tk.IntVar(value=get_default_workers())
         self.max_qps_var = tk.DoubleVar(value=10.0)
+
+        # Target locations selection & manual additions state
+        self.active_locations: List[Dict[str, Any]] = []
 
         # AI Enrichment state variables
         self.enable_enrichment_var = tk.BooleanVar(value=True)
@@ -77,43 +81,81 @@ class DashboardTab(ttk.Frame):
         paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         # Left panel (scrollable configuration & controls)
-        left_canvas = tk.Canvas(paned, bg=ThemeColors.BG_DARK, highlightthickness=0)
-        left_scrollbar = ttk.Scrollbar(paned, orient=tk.VERTICAL, command=left_canvas.yview)
-        left_frame = ttk.Frame(left_canvas, style="TFrame")
+        left_container = ttk.Frame(paned, style="TFrame")
+        paned.add(left_container, minsize=420, width=460)
 
-        left_frame.bind(
-            "<Configure>",
-            lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all")),
+        self.left_canvas = tk.Canvas(left_container, bg=ThemeColors.BG_DARK, highlightthickness=0)
+        self.left_scrollbar = ttk.Scrollbar(
+            left_container, orient=tk.VERTICAL, command=self.left_canvas.yview
         )
-        left_canvas.create_window((0, 0), window=left_frame, anchor="nw")
-        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+        self.left_canvas.configure(yscrollcommand=self.left_scrollbar.set)
 
-        paned.add(left_canvas, minsize=420, width=460)
+        self.left_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.left_frame = ttk.Frame(self.left_canvas, style="TFrame")
+        self.left_window_id = self.left_canvas.create_window(
+            (0, 0), window=self.left_frame, anchor="nw"
+        )
+
+        def _on_frame_configure(event: Any) -> None:
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+
+        def _on_canvas_configure(event: Any) -> None:
+            # Keep left_frame width synced to canvas width
+            self.left_canvas.itemconfig(self.left_window_id, width=event.width)
+
+        self.left_frame.bind("<Configure>", _on_frame_configure)
+        self.left_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Mousewheel scrolling across all children of left panel
+        def _on_mousewheel(event: tk.Event) -> None:
+            if event.delta:
+                self.left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif getattr(event, "num", None) == 4:
+                self.left_canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                self.left_canvas.yview_scroll(1, "units")
+
+        def _bind_mousewheel(event: Any = None) -> None:
+            self.left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            self.left_canvas.bind_all("<Button-4>", _on_mousewheel)
+            self.left_canvas.bind_all("<Button-5>", _on_mousewheel)
+
+        def _unbind_mousewheel(event: Any = None) -> None:
+            self.left_canvas.unbind_all("<MouseWheel>")
+            self.left_canvas.unbind_all("<Button-4>", _on_mousewheel)
+            self.left_canvas.unbind_all("<Button-5>", _on_mousewheel)
+
+        left_container.bind("<Enter>", _bind_mousewheel)
+        left_container.bind("<Leave>", _unbind_mousewheel)
 
         # Right panel (Live Metrics & Activity Console)
         right_frame = ttk.Frame(paned, style="TFrame")
         paned.add(right_frame, minsize=500)
 
         # Assemble Left Column Cards
-        self._build_status_badges_card(left_frame)
-        self._build_essential_config_card(left_frame)
-        self._build_categories_card(left_frame)
-        self._build_action_card(left_frame)
-        self._build_advanced_drawer_section(left_frame)
+        self._build_status_badges_card(self.left_frame)
+        self._build_essential_config_card(self.left_frame)
+        self._build_categories_card(self.left_frame)
+        self._build_action_card(self.left_frame)
+        self._build_advanced_drawer_section(self.left_frame)
 
         # Assemble Right Column Panels
         self._build_metrics_panel(right_frame)
         self._build_console_panel(right_frame)
 
-        # Initialize dynamic badges & indicators
+        # Initialize dynamic badges & locations list
         self._update_credential_badges()
-        self._update_locations_count()
+        self._load_locations_from_file(self.locations_file_var.get().strip())
 
         # Wire reactive variable traces
         self.api_key_var.trace_add("write", lambda *a: self._update_credential_badges())
         self.aws_bearer_token_var.trace_add("write", lambda *a: self._update_credential_badges())
         self.enable_enrichment_var.trace_add("write", lambda *a: self._update_credential_badges())
-        self.locations_file_var.trace_add("write", lambda *a: self._update_locations_count())
+        self.locations_file_var.trace_add(
+            "write", lambda *a: self._load_locations_from_file(self.locations_file_var.get().strip())
+        )
 
     def _build_status_badges_card(self, parent: ttk.Frame) -> None:
         """Card displaying real-time connection and service readiness."""
@@ -134,7 +176,7 @@ class DashboardTab(ttk.Frame):
         self.bedrock_badge.pack(side=tk.LEFT)
 
     def _build_essential_config_card(self, parent: ttk.Frame) -> None:
-        """Streamlined primary inputs: Locations file and Search Distance."""
+        """Streamlined primary inputs: Locations file selector, selection checklist, and Search Distance."""
         card = ttk.Frame(parent, style="Card.TFrame", padding=12)
         card.pack(fill=tk.X, padx=4, pady=4)
 
@@ -142,7 +184,7 @@ class DashboardTab(ttk.Frame):
         title_row.pack(fill=tk.X, pady=(0, 8))
         ttk.Label(title_row, text="Search Locations & Distance", style="Heading.TLabel").pack(side=tk.LEFT)
 
-        # Locations CSV
+        # File selector row
         loc_label_row = ttk.Frame(card, style="Card.TFrame")
         loc_label_row.pack(fill=tk.X)
         ttk.Label(loc_label_row, text="Locations Spreadsheet:", style="Card.TLabel").pack(side=tk.LEFT)
@@ -152,16 +194,79 @@ class DashboardTab(ttk.Frame):
         self.locations_count_label.pack(side=tk.RIGHT)
 
         loc_box = ttk.Frame(card, style="Card.TFrame")
-        loc_box.pack(fill=tk.X, pady=(2, 8))
+        loc_box.pack(fill=tk.X, pady=(2, 6))
         self.locations_entry = ttk.Entry(
             loc_box, textvariable=self.locations_file_var, style="TEntry"
         )
         self.locations_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         ttk.Button(loc_box, text="Browse...", command=self._browse_locations).pack(side=tk.LEFT)
 
+        # Interactive Location Selection Area
+        loc_list_container = ttk.Frame(card, style="Card.TFrame")
+        loc_list_container.pack(fill=tk.X, pady=(2, 8))
+
+        loc_action_row = ttk.Frame(loc_list_container, style="Card.TFrame")
+        loc_action_row.pack(fill=tk.X, pady=(0, 4))
+
+        ttk.Button(loc_action_row, text="Select All", width=9, command=self._select_all_locations).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        ttk.Button(loc_action_row, text="Clear All", width=8, command=self._deselect_all_locations).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        ttk.Button(
+            loc_action_row,
+            text="+ Add Location",
+            style="Primary.TButton",
+            command=self._open_add_location_dialog,
+        ).pack(side=tk.LEFT)
+
+        self.selected_count_label = ttk.Label(
+            loc_action_row, text="0 of 0 selected", style="Muted.TLabel"
+        )
+        self.selected_count_label.pack(side=tk.RIGHT)
+
+        # Scrollable box for checklist items with subtle border
+        box_border = tk.Frame(loc_list_container, bg=ThemeColors.BORDER, bd=1)
+        box_border.pack(fill=tk.X, pady=(2, 0))
+
+        self.loc_canvas = tk.Canvas(
+            box_border,
+            bg=ThemeColors.BG_CARD,
+            highlightthickness=0,
+            height=130,
+        )
+        loc_scrollbar = ttk.Scrollbar(
+            box_border, orient=tk.VERTICAL, command=self.loc_canvas.yview
+        )
+        self.loc_canvas.configure(yscrollcommand=loc_scrollbar.set)
+
+        loc_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.loc_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.loc_items_frame = ttk.Frame(self.loc_canvas, style="Card.TFrame")
+        self.loc_canvas_window = self.loc_canvas.create_window(
+            (0, 0), window=self.loc_items_frame, anchor="nw"
+        )
+
+        self.loc_items_frame.bind(
+            "<Configure>",
+            lambda e: self.loc_canvas.configure(scrollregion=self.loc_canvas.bbox("all")),
+        )
+        self.loc_canvas.bind(
+            "<Configure>",
+            lambda e: self.loc_canvas.itemconfig(self.loc_canvas_window, width=e.width),
+        )
+
+        def _on_loc_mousewheel(event: tk.Event) -> None:
+            if event.delta:
+                self.loc_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.loc_canvas.bind("<MouseWheel>", _on_loc_mousewheel)
+
         # Distance row
         rad_row = ttk.Frame(card, style="Card.TFrame")
-        rad_row.pack(fill=tk.X)
+        rad_row.pack(fill=tk.X, pady=(4, 0))
         ttk.Label(rad_row, text="Search Distance (km):", style="Card.TLabel").pack(side=tk.LEFT)
         ttk.Label(rad_row, text=" (Distance around each location)", style="Muted.TLabel").pack(side=tk.LEFT)
         ttk.Spinbox(
@@ -425,6 +530,13 @@ class DashboardTab(ttk.Frame):
             self.advanced_expanded_var.set(True)
             self.drawer_toggle_btn.config(text="⚙ Advanced Settings & Keys  ▼ Collapse")
 
+        # Recompute canvas scroll region immediately
+        self.left_frame.update_idletasks()
+        self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+        if not is_expanded:
+            # Auto-scroll so the user immediately sees the expanded settings
+            self.left_canvas.yview_moveto(0.35)
+
     def _update_credential_badges(self) -> None:
         """Update top status pills based on active keys."""
         key = self.api_key_var.get().strip()
@@ -442,21 +554,204 @@ class DashboardTab(ttk.Frame):
             else:
                 self.bedrock_badge.config(text="⚠ AI Key Needed", style="BadgeWarning.TLabel")
 
-    def _update_locations_count(self) -> None:
-        """Check target locations file and update row count badge."""
-        filepath = self.locations_file_var.get().strip()
+    def _load_locations_from_file(self, filepath: str) -> None:
+        """Load coordinates from the CSV file into active_locations list."""
         if not filepath or not os.path.exists(filepath):
+            self.active_locations = []
+            self._render_location_items()
             self.locations_count_label.config(text="⚠ File not found", foreground=ThemeColors.WARNING)
             return
+
         try:
-            with open(filepath, "r", encoding="utf-8-sig") as f:
-                lines = [line.strip() for line in f if line.strip()]
-            count = max(0, len(lines) - 1)
-            self.locations_count_label.config(
-                text=f"✓ {count} locations loaded", foreground=ThemeColors.SUCCESS
-            )
+            raw_locations = load_locations(filepath)
+            self.active_locations = [
+                {
+                    "name": loc["name"],
+                    "lat": float(loc["lat"]),
+                    "lng": float(loc["lng"]),
+                    "selected": tk.BooleanVar(value=True),
+                }
+                for loc in raw_locations
+            ]
+            self._render_location_items()
+            self.left_frame.update_idletasks()
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
         except Exception:
             self.locations_count_label.config(text="⚠ Cannot read file", foreground=ThemeColors.DANGER)
+
+    def _render_location_items(self) -> None:
+        """Re-render the checkbox items inside the scrollable locations frame."""
+        for child in self.loc_items_frame.winfo_children():
+            child.destroy()
+
+        if not self.active_locations:
+            empty_lbl = ttk.Label(
+                self.loc_items_frame,
+                text="No locations loaded. Click '+ Add Location' or browse for a spreadsheet.",
+                style="Muted.TLabel",
+            )
+            empty_lbl.pack(anchor="w", padx=8, pady=8)
+            self._update_selection_count()
+            return
+
+        for idx, loc in enumerate(self.active_locations):
+            row = ttk.Frame(self.loc_items_frame, style="Card.TFrame")
+            row.pack(fill=tk.X, padx=4, pady=1)
+
+            cb = ttk.Checkbutton(
+                row,
+                text=f"{loc['name']} ({loc['lat']:.4f}, {loc['lng']:.4f})",
+                variable=loc["selected"],
+                style="TCheckbutton",
+                command=self._update_selection_count,
+            )
+            cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            del_btn = tk.Button(
+                row,
+                text="✕",
+                font=("Segoe UI", 8),
+                fg=ThemeColors.TEXT_MUTED,
+                bg=ThemeColors.BG_CARD,
+                activeforeground=ThemeColors.DANGER,
+                activebackground=ThemeColors.BG_HOVER,
+                bd=0,
+                cursor="hand2",
+                padx=4,
+                command=lambda i=idx: self._remove_location_at(i),
+            )
+            del_btn.pack(side=tk.RIGHT, padx=4)
+
+        self._update_selection_count()
+
+    def _remove_location_at(self, index: int) -> None:
+        """Remove a location at the given index from active_locations."""
+        if 0 <= index < len(self.active_locations):
+            self.active_locations.pop(index)
+            self._render_location_items()
+            self.left_frame.update_idletasks()
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+
+    def _select_all_locations(self) -> None:
+        """Check all loaded locations."""
+        for loc in self.active_locations:
+            loc["selected"].set(True)
+        self._update_selection_count()
+
+    def _deselect_all_locations(self) -> None:
+        """Uncheck all loaded locations."""
+        for loc in self.active_locations:
+            loc["selected"].set(False)
+        self._update_selection_count()
+
+    def _update_selection_count(self) -> None:
+        """Update counter label showing selected vs total locations."""
+        total = len(self.active_locations)
+        selected = sum(1 for loc in self.active_locations if loc["selected"].get())
+        self.selected_count_label.config(text=f"{selected} of {total} selected")
+        if total > 0:
+            self.locations_count_label.config(
+                text=f"✓ {total} locations loaded", foreground=ThemeColors.SUCCESS
+            )
+        else:
+            self.locations_count_label.config(
+                text="0 locations", foreground=ThemeColors.WARNING
+            )
+
+    def _update_locations_count(self) -> None:
+        """Backward-compatible alias for reloading file locations."""
+        self._load_locations_from_file(self.locations_file_var.get().strip())
+
+    def _open_add_location_dialog(self) -> None:
+        """Open a dialog to manually add a new search location."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Add Location")
+        dialog.geometry("400x260")
+        dialog.resizable(False, False)
+        dialog.configure(bg=ThemeColors.BG_CARD)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() - 400) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 260) // 2
+            dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        frame = ttk.Frame(dialog, style="Card.TFrame", padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Add Search Location", style="Heading.TLabel").pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(frame, text="Location Name / Description:", style="Card.TLabel").pack(anchor="w")
+        name_entry = ttk.Entry(frame, style="TEntry")
+        name_entry.pack(fill=tk.X, pady=(2, 8))
+        name_entry.focus_set()
+
+        coords_row = ttk.Frame(frame, style="Card.TFrame")
+        coords_row.pack(fill=tk.X, pady=(0, 12))
+
+        lat_col = ttk.Frame(coords_row, style="Card.TFrame")
+        lat_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Label(lat_col, text="Latitude:", style="Card.TLabel").pack(anchor="w")
+        lat_entry = ttk.Entry(lat_col, style="TEntry")
+        lat_entry.pack(fill=tk.X, pady=(2, 0))
+
+        lng_col = ttk.Frame(coords_row, style="Card.TFrame")
+        lng_col.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(lng_col, text="Longitude:", style="Card.TLabel").pack(anchor="w")
+        lng_entry = ttk.Entry(lng_col, style="TEntry")
+        lng_entry.pack(fill=tk.X, pady=(2, 0))
+
+        btn_row = ttk.Frame(frame, style="Card.TFrame")
+        btn_row.pack(fill=tk.X, pady=(6, 0))
+
+        def _submit() -> None:
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showwarning("Name Required", "Please enter a location name.", parent=dialog)
+                return
+
+            try:
+                lat = float(lat_entry.get().strip())
+                if not (-90.0 <= lat <= 90.0):
+                    raise ValueError
+            except ValueError:
+                messagebox.showwarning(
+                    "Invalid Latitude", "Latitude must be a number between -90 and 90.", parent=dialog
+                )
+                return
+
+            try:
+                lng = float(lng_entry.get().strip())
+                if not (-180.0 <= lng <= 180.0):
+                    raise ValueError
+            except ValueError:
+                messagebox.showwarning(
+                    "Invalid Longitude", "Longitude must be a number between -180 and 180.", parent=dialog
+                )
+                return
+
+            self.active_locations.append({
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "selected": tk.BooleanVar(value=True),
+            })
+            self._render_location_items()
+            self.left_frame.update_idletasks()
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+            dialog.destroy()
+
+        ttk.Button(btn_row, text="Add Location", style="Primary.TButton", command=_submit).pack(
+            side=tk.RIGHT, padx=(6, 0)
+        )
+        ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+
+        dialog.bind("<Return>", lambda e: _submit())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
 
     def _build_metrics_panel(self, parent: ttk.Frame) -> None:
         """Metrics display panel showing locations, total places, and status."""
@@ -672,7 +967,7 @@ class DashboardTab(ttk.Frame):
         )
         if file_path:
             self.locations_file_var.set(file_path)
-            self._update_locations_count()
+            self._load_locations_from_file(file_path)
 
     def _browse_output_dir(self) -> None:
         dir_path = filedialog.askdirectory(
@@ -740,13 +1035,19 @@ class DashboardTab(ttk.Frame):
             )
             return
 
-        locations_file = self.locations_file_var.get().strip()
-        if not locations_file or not os.path.exists(locations_file):
+        selected_locs = [
+            {"name": loc["name"], "lat": loc["lat"], "lng": loc["lng"]}
+            for loc in self.active_locations
+            if loc["selected"].get()
+        ]
+        if not selected_locs:
             messagebox.showerror(
-                "Locations File Missing",
-                f"The locations spreadsheet '{locations_file}' was not found. Please check the path.",
+                "No Locations Selected",
+                "Please select at least one location to search, or add a location.",
             )
             return
+
+        locations_file = self.locations_file_var.get().strip()
 
         selected_cats = [
             cat for cat, var in self.category_vars.items() if var.get()
@@ -786,6 +1087,7 @@ class DashboardTab(ttk.Frame):
             api_key=api_key,
             radius_km=radius,
             locations_file=locations_file,
+            locations_list=selected_locs,
             output_dir=self.output_dir_var.get().strip() or "./data/google",
             dedup_output_dir=self.dedup_dir_var.get().strip() or None,
             max_workers=workers,

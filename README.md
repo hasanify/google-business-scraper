@@ -159,7 +159,7 @@ python main.py --gui
 ```
 
 **Desktop GUI Features:**
-- **Search & Run:** Clean, streamlined interface showing real-time connection status (`✓ Google Search Connected`, `✓ AI Assistant Active`), loaded locations counter, search distance, business type checkboxes, live progress and metrics, and prominent Start/Stop search buttons. Advanced technical controls (Google API keys, Amazon Bedrock keys/regions, simultaneous search counts, speed, and save folders) are cleanly organized inside an expandable settings drawer.
+- **Search & Run:** Clean, streamlined interface showing real-time connection status (`✓ Google Search Connected`, `✓ AI Assistant Active`), interactive target locations selector (load CSV spreadsheet, individual checkboxes to pick specific locations, Select All / Clear All, and manual + Add Location dialog), search distance, business type checkboxes, live progress and metrics, and prominent Start/Stop search buttons. Advanced technical controls (Google API keys, Amazon Bedrock keys/regions, simultaneous search counts, speed, and save folders) are cleanly organized inside an expandable settings drawer.
 - **Saved Data & Locations:** Modern 2-in-1 data explorer with an instant switcher between **Found Businesses** (browse search records, phone numbers, ratings, Excel opener, and format fix tool) and **Search Locations** (interactive locations editor to view, add, edit, delete, and save target search coordinates).
 
 ---

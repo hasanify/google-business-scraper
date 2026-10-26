@@ -406,12 +406,18 @@ class BusinessScraper:
         if self.config.dedup_output_dir:
             ensure_output_dir(self.config.dedup_output_dir)
 
-        locations = load_locations(self.config.locations_file)
+        if self.config.locations_list:
+            locations = [dict(loc) for loc in self.config.locations_list]
+            source_desc = f"{len(locations)} selected locations"
+        else:
+            locations = load_locations(self.config.locations_file)
+            source_desc = self.config.locations_file
+
         if not locations:
-            self.log(f"No locations found in {self.config.locations_file}!")
+            self.log(f"No locations found to search ({source_desc})!")
             self.emit_progress({
                 "type": "error",
-                "message": f"No locations found in {self.config.locations_file}!",
+                "message": f"No locations found to search ({source_desc})!",
             })
             return
 
@@ -420,7 +426,7 @@ class BusinessScraper:
         num_workers = min(total_locations, max(1, self.config.max_workers or 1))
 
         self.log("=" * 65)
-        self.log(f"Loaded {total_locations} locations from {self.config.locations_file}.")
+        self.log(f"Loaded {total_locations} locations from {source_desc}.")
         self.log(f"Configured Radius : {self.config.radius_km} km per location.")
         self.log(f"Concurrency       : {num_workers} parallel thread(s) (CPU: {cpu_threads} logical cores/threads).")
         self.log(f"Global Rate Limit : {self.config.max_qps:.1f} requests/sec across all threads (Google Cloud safe).")

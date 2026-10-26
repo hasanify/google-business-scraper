@@ -7,7 +7,7 @@ CPU core/thread detection for concurrency, API quota rate limits, and runtime co
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def load_dotenv(env_path: Optional[Path] = None) -> None:
@@ -58,6 +58,7 @@ class ScraperConfig:
     api_key: Optional[str] = None
     radius_km: float = 3.0
     locations_file: str = "locations.csv"
+    locations_list: Optional[List[Dict[str, Any]]] = None
     output_dir: str = "./data/google"
     dedup_output_dir: Optional[str] = None
     search_url: str = "https://places.googleapis.com/v1/places:searchText"
