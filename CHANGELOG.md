@@ -2,6 +2,22 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+# [1.4.0](https://github.com/hasanify/google-business-scraper/compare/v1.3.0...v1.4.0) (2026-10-26)
+
+
+### Features
+
+* **formatters:** add formatted_distance to dedup CSV ([e501650](https://github.com/hasanify/google-business-scraper/commit/e5016506370e424f2f565a9cd65d437bf3045939))
+
+
+### Performance Improvements
+
+* **enricher:** optimize AI token usage and caching ([4629c73](https://github.com/hasanify/google-business-scraper/commit/4629c7305fbf29268fb68f59d68078f08827064b))
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 # [1.3.0](https://github.com/hasanify/google-business-scraper/compare/v1.2.4...v1.3.0) (2026-10-26)
 
 
