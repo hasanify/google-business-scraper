@@ -9,7 +9,8 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import boto3
@@ -170,12 +171,16 @@ DEFAULT_TYPE_GOALS: Dict[str, str] = {
     "international_airport": "greater traveller visibility",
 }
 
-SYSTEM_PROMPT = """You are a business data enrichment engine.
-For each business item provided, generate:
-1. 'short_name': A clean, concise brand or business name suitable for display. Remove legal entities (Pvt Ltd, LLC, LLP, Inc, Co), branch/location details (e.g., '- Jasper, Lajpat Nagar', 'in Lajpat Nagar', parentheses with locations), and long secondary descriptors/taglines. Retain the core recognizable store or brand identity.
-2. 'business_goal': A 3-4 word phrase representing the core commercial marketing objective for this business type (e.g., 'more test drives' for car dealers, 'more service bookings' for car repairs, 'more rental bookings' for car rentals, 'higher dine-in footfall' for restaurants, 'more trip bookings' for travel agencies, 'more appointment bookings' for salons/services, 'higher store footfall' for retail clothing, 'more store visits' for electronics/mobile stores, 'bigger basket sizes' for supermarkets/groceries).
+SYSTEM_PROMPT = """You are a concise business brand extraction engine.
+For each numbered line (id|name), extract the clean brand or store name by removing:
+- Legal suffixes (Pvt Ltd, LLC, LLP, Inc, Co)
+- Branch or location suffixes (e.g., "- Branch", "in Connaught Place", "(South Ext)")
+- Generic taglines or marketing descriptors
+Retain the recognizable brand identity.
 
-Return ONLY a valid JSON array of objects with keys 'id', 'short_name', and 'business_goal'. No explanation or markdown."""
+Return ONLY lines in the exact format:
+id|short_name
+No explanation, headers, or markdown."""
 
 
 def heuristic_short_name(name: str) -> str:
@@ -197,6 +202,27 @@ def heuristic_short_name(name: str) -> str:
     return s if s else name.strip()
 
 
+def is_already_clean_short_name(name: str) -> bool:
+    """Check if a name is already a clean, concise brand name that needs no LLM processing."""
+    if not name:
+        return False
+    s = name.strip()
+    # If contains branch/legal separators or annotations, not clean
+    if any(sep in s for sep in [" - ", " | ", "(", ")", " / ", " : "]):
+        return False
+    # Check for corporate legal terms
+    legal_pattern = r"(?i)\b(pvt\.?\s*ltd\.?|private\s+limited|limited|llc|llp|inc\.?|corp\.?|co\.?)(?:\.|\b)"
+    if re.search(legal_pattern, s):
+        return False
+    # If it is 1 to 3 words, and does not end with common branch markers
+    words = s.split()
+    if 1 <= len(words) <= 3 and len(s) <= 30:
+        lower_last = words[-1].lower()
+        if lower_last not in {"branch", "outlet", "store", "showroom", "centre", "center", "hub"}:
+            return True
+    return False
+
+
 def heuristic_business_goal(primary_type: str, source_group: str = "") -> str:
     """Lookup default marketing business goal from taxonomy."""
     pt = (primary_type or "").lower().strip()
@@ -216,6 +242,43 @@ def heuristic_business_goal(primary_type: str, source_group: str = "") -> str:
     return "greater brand visibility"
 
 
+class BrandCache:
+    """Persistent JSON cache for resolved brand short names."""
+
+    def __init__(self, cache_file: Optional[Path] = None) -> None:
+        if cache_file is None:
+            cache_file = Path("data/.cache/brand_cache.json")
+        self.cache_file = cache_file
+        self._cache: Dict[str, str] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self._cache = data
+            except Exception:
+                self._cache = {}
+
+    def save(self) -> None:
+        try:
+            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.cache_file, "w", encoding="utf-8") as f:
+                json.dump(self._cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def get(self, name: str) -> Optional[str]:
+        return self._cache.get(name.lower().strip())
+
+    def set(self, name: str, short_name: str) -> None:
+        key = name.lower().strip()
+        if key and short_name:
+            self._cache[key] = short_name
+
+
 class BedrockEnricher:
     """Enriches business records using AWS Bedrock runtime client."""
 
@@ -224,6 +287,7 @@ class BedrockEnricher:
         region_name: Optional[str] = None,
         bearer_token: Optional[str] = None,
         model_id: Optional[str] = None,
+        cache_file: Optional[Path] = None,
     ) -> None:
         """Initialize AWS Bedrock client.
 
@@ -231,12 +295,14 @@ class BedrockEnricher:
             region_name: AWS region string (defaults to AWS_REGION or 'ap-south-1').
             bearer_token: Bedrock API Key / Bearer token (defaults to AWS_BEARER_TOKEN_BEDROCK).
             model_id: Model ID string (defaults to LLM_MODEL_ID or Claude 3.5 Haiku).
+            cache_file: Optional path for persistent brand cache.
         """
         self.region_name = region_name or os.getenv("AWS_REGION", "ap-south-1")
         self.bearer_token = bearer_token or os.getenv("AWS_BEARER_TOKEN_BEDROCK")
         self.model_id = model_id or os.getenv(
             "LLM_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
         )
+        self.brand_cache = BrandCache(cache_file=cache_file)
         self.client = None
 
         if self.bearer_token and "AWS_BEARER_TOKEN_BEDROCK" not in os.environ:
@@ -253,26 +319,20 @@ class BedrockEnricher:
         """Return True if Bedrock client is configured and available."""
         return self.client is not None
 
-    def _call_bedrock_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[int, Dict[str, str]]:
-        """Call Bedrock Converse API for a batch of items."""
+    def _call_bedrock_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[int, str]:
+        """Call Bedrock Converse API for a batch of items using compact line format."""
         if not self.client:
             return {}
 
-        prompt_payload = [
-            {
-                "id": item["id"],
-                "name": item["name"],
-                "primary_type": item.get("primary_type", ""),
-                "source_group": item.get("source_group", ""),
-            }
-            for item in batch_items
-        ]
+        # Format as compact lines: id|name
+        lines = [f"{item['id']}|{item['name']}" for item in batch_items]
+        prompt_text = "\n".join(lines)
 
         try:
             response = self.client.converse(
                 modelId=self.model_id,
                 system=[{"text": SYSTEM_PROMPT}],
-                messages=[{"role": "user", "content": [{"text": json.dumps(prompt_payload)}]}],
+                messages=[{"role": "user", "content": [{"text": prompt_text}]}],
                 inferenceConfig={"temperature": 0.0, "maxTokens": 2048},
             )
             raw_text = response["output"]["message"]["content"][0]["text"].strip()
@@ -281,15 +341,33 @@ class BedrockEnricher:
                 raw_text = re.sub(r"^```[a-zA-Z]*\n?", "", raw_text)
                 raw_text = re.sub(r"\n?```$", "", raw_text).strip()
 
-            parsed = json.loads(raw_text)
-            results: Dict[int, Dict[str, str]] = {}
-            if isinstance(parsed, list):
-                for obj in parsed:
-                    if isinstance(obj, dict) and "id" in obj:
-                        results[obj["id"]] = {
-                            "short_name": str(obj.get("short_name", "")).strip(),
-                            "business_goal": str(obj.get("business_goal", "")).strip(),
-                        }
+            results: Dict[int, str] = {}
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line or "|" not in line:
+                    continue
+                parts = line.split("|", 1)
+                try:
+                    idx = int(parts[0].strip())
+                    short_name = parts[1].strip()
+                    if short_name:
+                        results[idx] = short_name
+                except ValueError:
+                    continue
+
+            # Fallback in case model returned JSON
+            if not results and (raw_text.startswith("[") or raw_text.startswith("{")):
+                try:
+                    parsed = json.loads(raw_text)
+                    if isinstance(parsed, list):
+                        for obj in parsed:
+                            if isinstance(obj, dict) and "id" in obj:
+                                s_name = str(obj.get("short_name", "")).strip()
+                                if s_name:
+                                    results[obj["id"]] = s_name
+                except Exception:
+                    pass
+
             return results
         except Exception as e:
             logger.warning(f"Bedrock converse call failed: {e}")
@@ -298,14 +376,19 @@ class BedrockEnricher:
     def enrich_records(
         self,
         records: List[Dict[str, Any]],
-        batch_size: int = 25,
+        batch_size: int = 50,
         log_callback: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
-        """Enrich a list of records with short_name and business_goal.
+        """Enrich a list of records with short_name and business_goal with maximum token efficiency.
+
+        1. Resolves business_goal deterministically from taxonomy (0 LLM tokens).
+        2. Resolves previously cached brand names via BrandCache (0 LLM tokens).
+        3. Bypasses clean, atomic brand names via is_already_clean_short_name (0 LLM tokens).
+        4. Sends only unresolved complex names to Bedrock in compact pipe-delimited format (50 items/batch).
 
         Args:
             records: List of dictionaries containing at least 'name', 'primary_type', 'source_group'.
-            batch_size: Number of records per Bedrock API call (default 25).
+            batch_size: Number of records per Bedrock API call (default 50).
             log_callback: Optional logging function.
 
         Returns:
@@ -316,39 +399,62 @@ class BedrockEnricher:
 
         enriched: List[Dict[str, Any]] = [dict(r) for r in records]
 
-        # Process in batches
-        for start_idx in range(0, len(enriched), batch_size):
-            chunk = enriched[start_idx : start_idx + batch_size]
-            batch_items = [
-                {
-                    "id": idx,
-                    "name": r.get("business_name") or r.get("name", ""),
-                    "primary_type": r.get("primary_type", ""),
-                    "source_group": r.get("source_group", ""),
-                }
-                for idx, r in enumerate(chunk)
-            ]
+        # 1. Deterministic business_goal resolution & cache/heuristic pre-filtering
+        items_to_llm: List[Tuple[int, str]] = []  # (record_idx, raw_name)
 
-            results = {}
-            if self.is_available():
-                results = self._call_bedrock_batch(batch_items)
+        for idx, rec in enumerate(enriched):
+            raw_name = rec.get("business_name") or rec.get("name", "")
+            pt = rec.get("primary_type", "")
+            sg = rec.get("source_group", "")
 
-            for item in batch_items:
-                i = item["id"]
-                target_row = chunk[i]
-                res = results.get(i)
-                short_name = (res.get("short_name") if res else "") or heuristic_short_name(
-                    item["name"]
-                )
-                business_goal = (res.get("business_goal") if res else "") or heuristic_business_goal(
-                    item["primary_type"], item["source_group"]
-                )
+            # Deterministic marketing business goal
+            rec["business_goal"] = heuristic_business_goal(pt, sg)
 
-                target_row["short_name"] = short_name
-                target_row["business_goal"] = business_goal
+            # Check persistent cache
+            cached_short = self.brand_cache.get(raw_name)
+            if cached_short:
+                rec["short_name"] = cached_short
+                continue
 
-            if log_callback:
-                processed = min(start_idx + batch_size, len(enriched))
-                log_callback(f"Bedrock enrichment: {processed}/{len(enriched)} records processed")
+            # Check if name is already a clean atomic brand
+            if is_already_clean_short_name(raw_name):
+                rec["short_name"] = raw_name.strip()
+                self.brand_cache.set(raw_name, raw_name.strip())
+                continue
+
+            # Needs LLM brand extraction
+            items_to_llm.append((idx, raw_name))
+
+        # 2. Process remaining complex names with Bedrock in compact batches of 50
+        if items_to_llm and self.is_available():
+            for start_idx in range(0, len(items_to_llm), batch_size):
+                chunk = items_to_llm[start_idx : start_idx + batch_size]
+                batch_payload = [
+                    {"id": batch_item_id, "name": raw_name}
+                    for batch_item_id, (_, raw_name) in enumerate(chunk)
+                ]
+
+                results = self._call_bedrock_batch(batch_payload)
+
+                for batch_item_id, (rec_idx, raw_name) in enumerate(chunk):
+                    short_name = results.get(batch_item_id) or heuristic_short_name(raw_name)
+                    enriched[rec_idx]["short_name"] = short_name
+                    self.brand_cache.set(raw_name, short_name)
+
+                if log_callback:
+                    processed = min(start_idx + batch_size, len(items_to_llm))
+                    log_callback(
+                        f"Bedrock brand extraction: {processed}/{len(items_to_llm)} complex names processed "
+                        f"({len(enriched) - len(items_to_llm)} resolved locally)"
+                    )
+        else:
+            # Fallback for remaining items when LLM is unavailable or unconfigured
+            for rec_idx, raw_name in items_to_llm:
+                short = heuristic_short_name(raw_name)
+                enriched[rec_idx]["short_name"] = short
+                self.brand_cache.set(raw_name, short)
+
+        # Save updated brand cache to disk
+        self.brand_cache.save()
 
         return enriched

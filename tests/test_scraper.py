@@ -409,8 +409,41 @@ class TestBedrockEnricher(unittest.TestCase):
         self.assertEqual(heuristic_business_goal("restaurant"), "higher dine-in footfall")
         self.assertEqual(heuristic_business_goal("supermarket"), "bigger basket sizes")
 
+    def test_is_already_clean_short_name(self):
+        """Should detect already-clean atomic store/brand names."""
+        from src.api.bedrock_enricher import is_already_clean_short_name
+
+        self.assertTrue(is_already_clean_short_name("Auto Elite"))
+        self.assertTrue(is_already_clean_short_name("ZARA"))
+        self.assertTrue(is_already_clean_short_name("Starbucks"))
+        self.assertTrue(is_already_clean_short_name("KFC"))
+        self.assertTrue(is_already_clean_short_name("Haldiram's"))
+
+        # Complex names requiring extraction should return False
+        self.assertFalse(is_already_clean_short_name("TATA.CARS Showroom - Jasper, Lajpat Nagar"))
+        self.assertFalse(is_already_clean_short_name("Maruti Suzuki ARENA (Competent Automobiles)"))
+        self.assertFalse(is_already_clean_short_name("Punia Traveleaze Pvt. Ltd."))
+        self.assertFalse(is_already_clean_short_name("HDFC Bank Connaught Place Branch"))
+
+    def test_brand_cache(self):
+        """Should cache and recall resolved short names."""
+        import tempfile
+        from pathlib import Path
+        from src.api.bedrock_enricher import BrandCache
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cache_file = Path(tmp_dir) / "test_cache.json"
+            cache = BrandCache(cache_file=cache_file)
+            cache.set("Tata Motors - Jasper Branch", "Tata Motors")
+            cache.save()
+
+            # Reload into new instance
+            reloaded = BrandCache(cache_file=cache_file)
+            self.assertEqual(reloaded.get("Tata Motors - Jasper Branch"), "Tata Motors")
+            self.assertIsNone(reloaded.get("Unknown Business"))
+
     def test_enricher_batch_processing_mock(self):
-        """Should process batch of records and populate short_name and business_goal."""
+        """Should process batch of records with compact pipe format and populate short_name and business_goal."""
         from unittest.mock import MagicMock
         from src.api.bedrock_enricher import BedrockEnricher
 
@@ -420,7 +453,7 @@ class TestBedrockEnricher(unittest.TestCase):
                 "message": {
                     "content": [
                         {
-                            "text": '[{"id": 0, "short_name": "TATA Showroom", "business_goal": "more test drives"}]'
+                            "text": "0|TATA Showroom"
                         }
                     ]
                 }
@@ -435,6 +468,27 @@ class TestBedrockEnricher(unittest.TestCase):
         result = enricher.enrich_records(records)
         self.assertEqual(result[0]["short_name"], "TATA Showroom")
         self.assertEqual(result[0]["business_goal"], "more test drives")
+
+    def test_enricher_bypasses_clean_names_without_llm(self):
+        """Clean names should bypass Bedrock LLM calls entirely."""
+        from unittest.mock import MagicMock
+        from src.api.bedrock_enricher import BedrockEnricher
+
+        enricher = BedrockEnricher(region_name="ap-south-1")
+        enricher.client = MagicMock()
+
+        records = [
+            {"name": "Auto Elite", "primary_type": "car_dealer", "source_group": "automotive"},
+            {"name": "Starbucks", "primary_type": "coffee_shop", "source_group": "food_and_drink"},
+        ]
+        result = enricher.enrich_records(records)
+        self.assertEqual(result[0]["short_name"], "Auto Elite")
+        self.assertEqual(result[0]["business_goal"], "more test drives")
+        self.assertEqual(result[1]["short_name"], "Starbucks")
+        self.assertEqual(result[1]["business_goal"], "higher daily footfall")
+
+        # LLM client should NOT be called at all
+        enricher.client.converse.assert_not_called()
 
 
 class TestWhatsAppPhone(unittest.TestCase):

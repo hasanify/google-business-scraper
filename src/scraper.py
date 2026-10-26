@@ -303,7 +303,7 @@ class BusinessScraper:
                         if self.enricher and self.config.enable_enrichment:
                             enriched_records = self.enricher.enrich_records(
                                 valid_dedup_candidates,
-                                batch_size=25,
+                                batch_size=50,
                                 log_callback=self.log,
                             )
                         else:

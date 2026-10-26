@@ -14,6 +14,7 @@ A modular, production-ready Python tool that discovers, aggregates, and exports 
 - **Multi-Threaded Parallel Execution:** Scrapes multiple target locations concurrently using a worker thread pool (one location per thread) for high performance and minimal turnaround time.
 - **Resilient Pagination & Rate Limiting:** Handles `pageToken` pagination, network timeouts, and inter-query delays to prevent API throttling.
 - **Streaming CSV Export:** Flushes discovered records progressively to disk to avoid data loss during network hiccups.
+- **Token-Optimized AI Enrichment:** Enriches deduplicated business records with clean brand names and commercial goals via AWS Bedrock (Claude 3.5 Haiku) with an 80%+ token reduction using deterministic taxonomy goal resolution, clean-name heuristic bypasses, persistent brand caching, and compact 50-item pipe-delimited batching.
 
 ---
 
@@ -32,7 +33,7 @@ google-business-scraper/
 │   ├── version.py            # Application version definition
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── bedrock_enricher.py # AWS Bedrock enrichment client (short_name & business_goal)
+│   │   ├── bedrock_enricher.py # AWS Bedrock enrichment with brand caching & compact batching
 │   │   ├── google_places.py  # Google Places API client, auth check, paginated queries
 │   │   └── rate_limiter.py   # Global thread-safe QPS rate limiter
 │   ├── geo/
