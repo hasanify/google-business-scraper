@@ -2,6 +2,18 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+# [1.5.0](https://github.com/hasanify/google-business-scraper/compare/v1.4.0...v1.5.0) (2026-10-26)
+
+
+### Features
+
+* **gui:** add AWS Bedrock config card to dashboard ([a0b0e00](https://github.com/hasanify/google-business-scraper/commit/a0b0e00496639d7fa4a85c14d122e19f36014e6b))
+* **gui:** simplify interface with 2-tab light mode and plain English text ([2478de3](https://github.com/hasanify/google-business-scraper/commit/2478de3fb69be0c80a6f64b0918b4f7951816eed)), closes [hi#contrast](https://github.com/hi/issues/contrast)
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 # [1.4.0](https://github.com/hasanify/google-business-scraper/compare/v1.3.0...v1.4.0) (2026-10-26)
 
 
