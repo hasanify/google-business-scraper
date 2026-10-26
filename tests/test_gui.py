@@ -92,7 +92,7 @@ class TestGUIComponents(unittest.TestCase):
             csv_path = os.path.join(tmpdir, "location_01_test.csv")
             with open(csv_path, "w", encoding="utf-8-sig") as f:
                 f.write(
-                    "sno,name,address,gmb_link,lat,lng,distance_km,phone,rating,user_ratings_total,source_group,primary_type,opening_hours,tag\n"
+                    "sno,name,address,gmb_link,lat,lng,distance_km,phone,rating,review_count,source_group,primary_type,opening_hours,tag\n"
                     "1,Test Cafe,123 St,http://maps,28.5,77.2,0.5,+123456789,4.5,10,food_and_drink,cafe,Mon-Fri,test\n"
                     "2,Test Store,456 St,http://maps,28.5,77.2,1.2,,4.0,5,shopping,store,Mon-Fri,test\n"
                 )

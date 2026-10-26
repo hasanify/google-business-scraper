@@ -249,7 +249,7 @@ class ViewerTab(ttk.Frame):
                 tk.END,
                 values=(
                     row.get("sno", ""),
-                    row.get("name", ""),
+                    row.get("business_name") or row.get("name", ""),
                     row.get("phone", ""),
                     row.get("rating", ""),
                     row.get("primary_type", ""),

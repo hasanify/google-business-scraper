@@ -282,7 +282,7 @@ class TestDualVariantGeneration(unittest.TestCase):
     """Test generating both all-entries and deduplicated-with-phone variants."""
 
     def test_dual_variant_files_created_and_filtered(self):
-        """Scraper should output all entries to output_dir and only valid phone entries to dedup_output_dir."""
+        """Scraper should output all entries to output_dir and only valid phone & review entries to dedup_output_dir."""
         import csv
         from unittest.mock import MagicMock
 
@@ -291,38 +291,54 @@ class TestDualVariantGeneration(unittest.TestCase):
                 output_dir=tmp_all,
                 dedup_output_dir=tmp_dedup,
                 inter_query_delay=0.0,
+                enable_enrichment=False,  # Test heuristic enrichment path deterministically
             )
             scraper = BusinessScraper(cfg)
 
-            # Mock search_text_paginated to return 2 places: 1 with phone, 1 without phone
+            # Mock search_text_paginated to return 3 places:
+            # 1: valid phone + valid review count (kept in dedup)
+            # 2: valid phone but NO review count (filtered out from dedup)
+            # 3: no phone (filtered out from dedup)
             mock_places = [
                 {
                     "id": "place_1",
-                    "displayName": {"text": "Store With Phone"},
+                    "displayName": {"text": "Store With Phone - Lajpat Nagar Branch"},
                     "formattedAddress": "123 Main St",
                     "location": {"latitude": 28.5, "longitude": 77.2},
                     "internationalPhoneNumber": "+91 98765 43210",
+                    "userRatingCount": 25,
+                    "rating": 4.5,
                     "businessStatus": "OPERATIONAL",
                 },
                 {
                     "id": "place_2",
-                    "displayName": {"text": "Store Without Phone"},
+                    "displayName": {"text": "Store With Phone But No Reviews"},
                     "formattedAddress": "456 Side St",
                     "location": {"latitude": 28.5, "longitude": 77.2},
+                    "internationalPhoneNumber": "+91 91234 56789",
+                    "userRatingCount": None,
+                    "businessStatus": "OPERATIONAL",
+                },
+                {
+                    "id": "place_3",
+                    "displayName": {"text": "Store Without Phone"},
+                    "formattedAddress": "789 Other St",
+                    "location": {"latitude": 28.5, "longitude": 77.2},
                     "internationalPhoneNumber": None,
+                    "userRatingCount": 10,
                     "businessStatus": "OPERATIONAL",
                 },
             ]
-            scraper.client.search_text_paginated = MagicMock(return_value=mock_places)
-
             loc_info = {"name": "Test Hub", "lat": 28.5, "lng": 77.2}
             call_count = [0]
+
             def fake_search(*args, **kwargs):
                 call_count[0] += 1
                 if call_count[0] == 1:
                     return mock_places
                 scraper.stop_event.set()
                 return []
+
             scraper.client.search_text_paginated = fake_search
 
             count, all_outfile = scraper.process_single_location(1, loc_info, 1)
@@ -331,15 +347,82 @@ class TestDualVariantGeneration(unittest.TestCase):
             self.assertTrue(os.path.exists(all_outfile))
             self.assertTrue(os.path.exists(dedup_outfile))
 
-            with open(all_outfile, "r", encoding="utf-8") as f:
+            with open(all_outfile, "r", encoding="utf-8-sig") as f:
                 all_rows = list(csv.DictReader(f))
-            with open(dedup_outfile, "r", encoding="utf-8") as f:
+            with open(dedup_outfile, "r", encoding="utf-8-sig") as f:
                 dedup_rows = list(csv.DictReader(f))
 
-            self.assertEqual(len(all_rows), 2)
+            # All 3 places in raw CSV
+            self.assertEqual(len(all_rows), 3)
+            self.assertIn("review_count", all_rows[0])
+
+            # Only place_1 (valid phone + valid review count) in dedup CSV
             self.assertEqual(len(dedup_rows), 1)
+            self.assertEqual(dedup_rows[0]["sno"], "1")
+            self.assertEqual(dedup_rows[0]["business_name"], "Store With Phone - Lajpat Nagar Branch")
+            self.assertEqual(dedup_rows[0]["whatsapp_name"], "Store With Phone - Lajpat Nagar Branch")
+            self.assertEqual(dedup_rows[0]["short_name"], "Store With Phone")
+            self.assertEqual(dedup_rows[0]["review_count"], "25")
+            self.assertTrue(bool(dedup_rows[0]["business_goal"]))
             self.assertEqual(dedup_rows[0]["phone"], "+91 98765 43210")
             self.assertEqual(dedup_rows[0]["tag"], "test_hub")
+
+
+class TestBedrockEnricher(unittest.TestCase):
+    """Test Bedrock enrichment client and heuristic fallbacks."""
+
+    def test_heuristic_short_name(self):
+        """Should strip corporate suffixes and location/tagline text."""
+        from src.api.bedrock_enricher import heuristic_short_name
+
+        self.assertEqual(
+            heuristic_short_name("TATA.CARS Showroom - Jasper, Lajpat Nagar"),
+            "TATA.CARS Showroom",
+        )
+        self.assertEqual(
+            heuristic_short_name("Maruti Suzuki ARENA (Competent Automobiles)"),
+            "Maruti Suzuki ARENA",
+        )
+        self.assertEqual(
+            heuristic_short_name("Punia Traveleaze Pvt. Ltd."),
+            "Punia Traveleaze",
+        )
+
+    def test_heuristic_business_goal(self):
+        """Should map primary types to concise marketing business goals."""
+        from src.api.bedrock_enricher import heuristic_business_goal
+
+        self.assertEqual(heuristic_business_goal("car_dealer"), "more test drives")
+        self.assertEqual(heuristic_business_goal("car_repair"), "more service bookings")
+        self.assertEqual(heuristic_business_goal("restaurant"), "higher dine-in footfall")
+        self.assertEqual(heuristic_business_goal("supermarket"), "bigger basket sizes")
+
+    def test_enricher_batch_processing_mock(self):
+        """Should process batch of records and populate short_name and business_goal."""
+        from unittest.mock import MagicMock
+        from src.api.bedrock_enricher import BedrockEnricher
+
+        enricher = BedrockEnricher(region_name="ap-south-1")
+        mock_response = {
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "text": '[{"id": 0, "short_name": "TATA Showroom", "business_goal": "more test drives"}]'
+                        }
+                    ]
+                }
+            }
+        }
+        enricher.client = MagicMock()
+        enricher.client.converse.return_value = mock_response
+
+        records = [
+            {"name": "TATA Showroom Pvt Ltd", "primary_type": "car_dealer", "source_group": "automotive"}
+        ]
+        result = enricher.enrich_records(records)
+        self.assertEqual(result[0]["short_name"], "TATA Showroom")
+        self.assertEqual(result[0]["business_goal"], "more test drives")
 
 
 if __name__ == "__main__":

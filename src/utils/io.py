@@ -91,14 +91,19 @@ def clean_csv_file(filepath: Union[str, Path]) -> Tuple[int, int]:
         fieldnames = list(reader.fieldnames or [])
         for row in reader:
             total_rows += 1
-            orig_name = row.get("name", "")
+            orig_name = row.get("business_name") or row.get("name", "")
             orig_addr = row.get("address", "")
             new_name = clean_text(orig_name, is_name=True)
             new_addr = clean_text(orig_addr, is_name=False)
 
             if new_name != orig_name or new_addr != orig_addr:
                 modified_rows += 1
-                row["name"] = new_name
+                if "business_name" in row:
+                    row["business_name"] = new_name
+                if "whatsapp_name" in row:
+                    row["whatsapp_name"] = new_name
+                if "name" in row:
+                    row["name"] = new_name
                 row["address"] = new_addr
             rows.append(row)
 

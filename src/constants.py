@@ -9,7 +9,7 @@ from typing import Dict, List
 # Mapping of day indices (0=Monday, ..., 6=Sunday) to abbreviations
 DAY_MAP: List[str] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-# Standard field names for exported business CSV files
+# Standard field names for exported business CSV files (raw places)
 CSV_FIELDNAMES: List[str] = [
     "sno",
     "name",
@@ -20,11 +20,32 @@ CSV_FIELDNAMES: List[str] = [
     "distance_km",
     "phone",
     "rating",
-    "user_ratings_total",
+    "review_count",
     "source_group",
     "primary_type",
     "opening_hours",
     "tag",
+]
+
+# Field names for enriched and deduplicated CSV files
+DEDUP_CSV_FIELDNAMES: List[str] = [
+    "sno",
+    "whatsapp_name",
+    "business_name",
+    "short_name",
+    "address",
+    "gmb_link",
+    "lat",
+    "lng",
+    "distance_km",
+    "phone",
+    "rating",
+    "review_count",
+    "source_group",
+    "primary_type",
+    "opening_hours",
+    "tag",
+    "business_goal",
 ]
 
 # Field mask for Google Places API (New) places:searchText queries

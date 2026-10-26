@@ -70,11 +70,26 @@ class ScraperConfig:
     max_retries: int = 4
     retry_backoff: float = 1.5
     selected_categories: Optional[List[str]] = None
+    aws_region: str = ""
+    aws_bearer_token: Optional[str] = None
+    bedrock_model_id: str = ""
+    enable_enrichment: bool = True
 
     def __post_init__(self) -> None:
-        """Resolve API key and dynamic CPU-based worker count if not explicitly set."""
+        """Resolve API keys, dynamic CPU worker count, and Bedrock parameters."""
         if not self.api_key:
             self.api_key = os.environ.get("GOOGLE_API_KEY", "")
+
+        if not self.aws_region:
+            self.aws_region = os.environ.get("AWS_REGION", "ap-south-1")
+
+        if not self.aws_bearer_token:
+            self.aws_bearer_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+
+        if not self.bedrock_model_id:
+            self.bedrock_model_id = os.environ.get(
+                "LLM_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+            )
 
         if self.max_workers is None or self.max_workers <= 0:
             self.max_workers = get_default_workers()

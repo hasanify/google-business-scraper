@@ -32,7 +32,9 @@ google-business-scraper/
 │   ├── version.py            # Application version definition
 │   ├── api/
 │   │   ├── __init__.py
-│   │   └── google_places.py  # Google Places API client, auth check, paginated queries
+│   │   ├── bedrock_enricher.py # AWS Bedrock enrichment client (short_name & business_goal)
+│   │   ├── google_places.py  # Google Places API client, auth check, paginated queries
+│   │   └── rate_limiter.py   # Global thread-safe QPS rate limiter
 │   ├── geo/
 │   │   ├── __init__.py
 │   │   └── vincenty.py       # WGS-84 Vincenty geodesic distance & bounding box math
@@ -108,9 +110,14 @@ Edit `.env`:
 
 ```env
 GOOGLE_API_KEY="AIzaSyYourActualGooglePlacesApiKeyHere"
+
+# Optional AWS Bedrock enrichment configuration
+AWS_REGION="ap-south-1"
+AWS_BEARER_TOKEN_BEDROCK="your_bedrock_bearer_token_here"
+LLM_MODEL_ID="global.anthropic.claude-haiku-4-5-20251001-v1:0"
 ```
 
-*(Alternatively, you can export `GOOGLE_API_KEY` in your terminal shell).*
+*(Alternatively, you can export these variables in your terminal shell).*
 
 ---
 
@@ -200,11 +207,35 @@ Each file contains the following fields:
 | `distance_km` | Precise ellipsoidal distance from target | `0.1425` |
 | `phone` | Contact phone number | `"+91 11 4123 4567"` |
 | `rating` | Average Google review rating | `4.4` |
-| `user_ratings_total` | Total count of Google reviews | `1250` |
+| `review_count` | Total count of Google reviews | `1250` |
 | `source_group` | Scraped category group | `food_and_drink` |
 | `primary_type` | Specific Google Places type | `coffee_shop` |
 | `opening_hours` | Compressed schedule summary | `Mon-Sun 08:00-23:00` |
 | `tag` | Sanitized location identifier slug | `"dlf_promenade"` |
+
+### Deduplicated & Enriched CSV Schema (`data/<output-dir>_deduplicated/`)
+
+Files saved in the `_deduplicated` directory contain unique POIs filtered to valid phone numbers and enriched with AWS Bedrock. Any entries where `review_count`, `business_name`, `short_name`, or `business_goal` is missing are automatically cleaned and excluded:
+
+| Column | Description | Example |
+| :--- | :--- | :--- |
+| `sno` | Continuous sequential number | `1` |
+| `whatsapp_name` | Name formatted for WhatsApp outreach | `"TATA.CARS Showroom - Jasper"` |
+| `business_name` | Business display name | `"TATA.CARS Showroom - Jasper"` |
+| `short_name` | Bedrock-generated concise brand name | `"TATA.CARS Showroom"` |
+| `address` | Formatted street address | `"Basement and 13 A, Ground floor..."` |
+| `gmb_link` | Google Maps URL with Place ID | `https://www.google.com/maps/place/?q=place_id:...` |
+| `lat` | Place latitude | `28.564954` |
+| `lng` | Place longitude | `77.237361` |
+| `distance_km` | Geodesic distance from search center | `1.6169` |
+| `phone` | Validated contact phone number | `"+91 91673 79735"` |
+| `rating` | Average Google review rating | `4.8` |
+| `review_count` | Total count of Google reviews | `112` |
+| `source_group` | Scraped category group | `automotive` |
+| `primary_type` | Specific Google Places type | `car_dealer` |
+| `opening_hours` | Compressed schedule summary | `Mon-Sun 10:00-19:00` |
+| `tag` | Sanitized location identifier slug | `"largest_dooh_cluster_..."` |
+| `business_goal` | Bedrock-generated commercial goal | `"more test drives"` |
 
 ---
 

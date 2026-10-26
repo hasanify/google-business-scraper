@@ -14,10 +14,15 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from .api.bedrock_enricher import (
+    BedrockEnricher,
+    heuristic_business_goal,
+    heuristic_short_name,
+)
 from .api.google_places import GooglePlacesClient
 from .api.rate_limiter import ThreadSafeRateLimiter
 from .config import DEFAULT_CONFIG, ScraperConfig
-from .constants import CSV_FIELDNAMES, KEYWORD_GROUPS
+from .constants import CSV_FIELDNAMES, DEDUP_CSV_FIELDNAMES, KEYWORD_GROUPS
 from .geo.vincenty import vincenty_km
 from .utils.formatters import clean_text, compress_opening_hours, sanitize_filename
 from .utils.io import ensure_output_dir, load_locations
@@ -53,6 +58,15 @@ class BusinessScraper:
             max_qps=self.config.max_qps,
             max_retries=self.config.max_retries,
             retry_backoff=self.config.retry_backoff,
+        )
+        self.enricher = (
+            BedrockEnricher(
+                region_name=self.config.aws_region,
+                bearer_token=self.config.aws_bearer_token,
+                model_id=self.config.bedrock_model_id,
+            )
+            if self.config.enable_enrichment
+            else None
         )
 
     def log(self, message: str) -> None:
@@ -127,6 +141,7 @@ class BusinessScraper:
 
         seen: Set[str] = set()
         dedup_seen: Set[str] = set()
+        dedup_candidates: List[Dict[str, Any]] = []
         sno = 0
         dedup_sno = 0
 
@@ -140,14 +155,6 @@ class BusinessScraper:
             writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
             writer.writeheader()
             f.flush()
-
-            f_dedup = None
-            dedup_writer = None
-            if dedup_output_file:
-                f_dedup = open(dedup_output_file, "w", newline="", encoding="utf-8-sig")
-                dedup_writer = csv.DictWriter(f_dedup, fieldnames=CSV_FIELDNAMES)
-                dedup_writer.writeheader()
-                f_dedup.flush()
 
             try:
                 for group, types in groups_to_query.items():
@@ -209,7 +216,7 @@ class BusinessScraper:
                                 "distance_km": distance_km,
                                 "phone": phone,
                                 "rating": place.get("rating", ""),
-                                "user_ratings_total": place.get("userRatingCount", ""),
+                                "review_count": place.get("userRatingCount", ""),
                                 "source_group": group,
                                 "primary_type": place_type,
                                 "opening_hours": compress_opening_hours(
@@ -219,16 +226,26 @@ class BusinessScraper:
                             }
                             writer.writerow(row_data)
 
-                            # Deduplicated variant with valid phone number only
+                            # Candidate check for deduplicated export:
+                            # Must have valid phone, valid review_count, and valid name
+                            raw_reviews = place.get("userRatingCount")
                             has_phone = bool(
                                 phone and phone.strip().lower() not in ("none", "null", "nan", "n/a", "-")
                             )
-                            if has_phone and dedup_writer and pid not in dedup_seen:
+                            has_reviews = (
+                                raw_reviews is not None
+                                and str(raw_reviews).strip() != ""
+                                and str(raw_reviews).strip().lower() not in ("none", "null", "nan")
+                            )
+                            has_biz_name = bool(
+                                row_data["name"]
+                                and row_data["name"].strip()
+                                and row_data["name"].strip().lower() not in ("none", "null", "nan")
+                            )
+                            if has_phone and has_reviews and has_biz_name and pid not in dedup_seen:
                                 dedup_seen.add(pid)
-                                dedup_sno += 1
-                                dedup_row = dict(row_data)
-                                dedup_row["sno"] = dedup_sno
-                                dedup_writer.writerow(dedup_row)
+                                dedup_candidates.append(dict(row_data))
+                                dedup_sno = len(dedup_candidates)
 
                             self.emit_progress({
                                 "type": "place_found",
@@ -241,14 +258,85 @@ class BusinessScraper:
                             })
 
                         f.flush()
-                        if f_dedup:
-                            f_dedup.flush()
 
                         if self.stop_event.wait(self.config.inter_query_delay):
                             break
             finally:
-                if f_dedup:
-                    f_dedup.close()
+                # Perform Bedrock enrichment & cleanup filtering on deduplicated candidates
+                if dedup_output_file:
+                    if dedup_candidates:
+                        self.log(
+                            f"{tag} Enriching {len(dedup_candidates)} places with Bedrock (short_name & business_goal)..."
+                        )
+                        if self.enricher and self.config.enable_enrichment:
+                            enriched_records = self.enricher.enrich_records(
+                                dedup_candidates,
+                                batch_size=25,
+                                log_callback=self.log,
+                            )
+                        else:
+                            enriched_records = []
+                            for r in dedup_candidates:
+                                er = dict(r)
+                                er["short_name"] = heuristic_short_name(er.get("name", ""))
+                                er["business_goal"] = heuristic_business_goal(
+                                    er.get("primary_type", ""), er.get("source_group", "")
+                                )
+                                enriched_records.append(er)
+
+                        final_dedup_rows: List[Dict[str, Any]] = []
+                        for r in enriched_records:
+                            b_name = (r.get("name") or "").strip()
+                            s_name = (r.get("short_name") or "").strip()
+                            b_goal = (r.get("business_goal") or "").strip()
+                            r_cnt = str(r.get("review_count", "")).strip()
+
+                            def _is_present(val: str) -> bool:
+                                return bool(val and val.lower() not in ("none", "null", "nan"))
+
+                            if (
+                                _is_present(b_name)
+                                and _is_present(s_name)
+                                and _is_present(b_goal)
+                                and _is_present(r_cnt)
+                            ):
+                                final_row = {
+                                    "sno": len(final_dedup_rows) + 1,
+                                    "whatsapp_name": b_name,
+                                    "business_name": b_name,
+                                    "short_name": s_name,
+                                    "address": r.get("address", ""),
+                                    "gmb_link": r.get("gmb_link", ""),
+                                    "lat": r.get("lat", ""),
+                                    "lng": r.get("lng", ""),
+                                    "distance_km": r.get("distance_km", ""),
+                                    "phone": r.get("phone", ""),
+                                    "rating": r.get("rating", ""),
+                                    "review_count": r_cnt,
+                                    "source_group": r.get("source_group", ""),
+                                    "primary_type": r.get("primary_type", ""),
+                                    "opening_hours": r.get("opening_hours", ""),
+                                    "tag": r.get("tag", ""),
+                                    "business_goal": b_goal,
+                                }
+                                final_dedup_rows.append(final_row)
+
+                        with open(dedup_output_file, "w", newline="", encoding="utf-8-sig") as f_dedup:
+                            dedup_writer = csv.DictWriter(f_dedup, fieldnames=DEDUP_CSV_FIELDNAMES)
+                            dedup_writer.writeheader()
+                            dedup_writer.writerows(final_dedup_rows)
+                            f_dedup.flush()
+
+                        dedup_sno = len(final_dedup_rows)
+                        self.log(
+                            f"{tag} Saved {dedup_sno} enriched & cleaned deduplicated places to {dedup_output_file}"
+                        )
+                    else:
+                        with open(dedup_output_file, "w", newline="", encoding="utf-8-sig") as f_dedup:
+                            dedup_writer = csv.DictWriter(f_dedup, fieldnames=DEDUP_CSV_FIELDNAMES)
+                            dedup_writer.writeheader()
+                            f_dedup.flush()
+                        dedup_sno = 0
 
         if self.stop_event.is_set():
             msg = f"\n[!] {tag} Interrupted early. Flushed {sno} places to {output_file}"
