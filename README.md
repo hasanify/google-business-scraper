@@ -159,7 +159,7 @@ python main.py --gui
 ```
 
 **Desktop GUI Features:**
-- **Scraper Dashboard:** Configure API key (show/hide toggle, save to `.env`), target CSV file, output directories, search radius, concurrency worker count, max QPS, and category checklists with a real-time progress bar, live metrics cards, streaming console log, and start/stop controls.
+- **Scraper Dashboard:** Configure Google Places API key and AWS Bedrock AI parameters (bearer token with show/hide toggle, AWS region, model ID, toggle AI enrichment, save to `.env`), target CSV file, output directories, search radius, concurrency worker count, max QPS, and category checklists with a real-time progress bar, live metrics cards, streaming console log, and start/stop controls.
 - **Locations Manager:** View, filter, add, edit, delete, and save target coordinates directly within an interactive table with latitude/longitude bounds validation.
 - **Results Viewer & Tools:** Browse and search scraped business records, view key metrics (total places, valid phone count, average rating), open CSVs directly in Excel or folder in Explorer, and run one-click text sanitization with UTF-8 BOM encoding.
 

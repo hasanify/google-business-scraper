@@ -113,6 +113,27 @@ class TestGUIComponents(unittest.TestCase):
         )
         self.assertEqual(config.selected_categories, ["automotive"])
 
+    def test_dashboard_bedrock_config(self) -> None:
+        """Verify Bedrock AI enrichment GUI controls and state variables."""
+        dash = self.app.dashboard_tab
+        self.assertIsNotNone(dash.enable_enrichment_var)
+        self.assertIsNotNone(dash.aws_bearer_token_var)
+        self.assertIsNotNone(dash.aws_region_var)
+        self.assertIsNotNone(dash.bedrock_model_id_var)
+
+        # Test visibility toggle
+        initial_state = dash.show_bedrock_token_var.get()
+        dash._toggle_bedrock_visibility()
+        self.assertNotEqual(dash.show_bedrock_token_var.get(), initial_state)
+        dash._toggle_bedrock_visibility()
+        self.assertEqual(dash.show_bedrock_token_var.get(), initial_state)
+
+        # Test enrichment toggle
+        dash.enable_enrichment_var.set(False)
+        dash._on_toggle_enrichment()
+        dash.enable_enrichment_var.set(True)
+        dash._on_toggle_enrichment()
+
 
 if __name__ == "__main__":
     unittest.main()

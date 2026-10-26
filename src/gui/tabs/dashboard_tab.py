@@ -35,6 +35,19 @@ class DashboardTab(ttk.Frame):
         self.workers_var = tk.IntVar(value=get_default_workers())
         self.max_qps_var = tk.DoubleVar(value=10.0)
 
+        # Bedrock AI Enrichment state variables
+        self.enable_enrichment_var = tk.BooleanVar(value=True)
+        self.aws_bearer_token_var = tk.StringVar(
+            value=os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
+        )
+        self.show_bedrock_token_var = tk.BooleanVar(value=False)
+        self.aws_region_var = tk.StringVar(value=os.environ.get("AWS_REGION", "ap-south-1"))
+        self.bedrock_model_id_var = tk.StringVar(
+            value=os.environ.get(
+                "LLM_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+            )
+        )
+
         # Category selections
         self.category_vars: Dict[str, tk.BooleanVar] = {
             group: tk.BooleanVar(value=True) for group in KEYWORD_GROUPS.keys()
@@ -80,6 +93,7 @@ class DashboardTab(ttk.Frame):
         paned.add(right_frame, minsize=500)
 
         self._build_config_card(left_frame)
+        self._build_bedrock_card(left_frame)
         self._build_categories_card(left_frame)
         self._build_action_card(left_frame)
         self._build_metrics_panel(right_frame)
@@ -190,6 +204,88 @@ class DashboardTab(ttk.Frame):
             increment=1.0,
             textvariable=self.max_qps_var,
             width=6,
+        ).pack(fill=tk.X, pady=2)
+
+    def _build_bedrock_card(self, parent: ttk.Frame) -> None:
+        """Card for configuring AWS Bedrock AI enrichment parameters."""
+        card = ttk.Frame(parent, style="Card.TFrame", padding=14)
+        card.pack(fill=tk.X, padx=4, pady=4)
+
+        header_box = ttk.Frame(card, style="Card.TFrame")
+        header_box.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(header_box, text="AWS Bedrock AI Enrichment", style="Heading.TLabel").pack(
+            side=tk.LEFT
+        )
+
+        enable_cb = ttk.Checkbutton(
+            header_box,
+            text="Enable AI",
+            variable=self.enable_enrichment_var,
+            style="TCheckbutton",
+            command=self._on_toggle_enrichment,
+        )
+        enable_cb.pack(side=tk.RIGHT)
+
+        self.bedrock_inputs_frame = ttk.Frame(card, style="Card.TFrame")
+        self.bedrock_inputs_frame.pack(fill=tk.X)
+
+        # Bearer Token / API Key
+        ttk.Label(
+            self.bedrock_inputs_frame,
+            text="Bedrock Bearer Token / API Key:",
+            style="Card.TLabel",
+        ).pack(anchor="w")
+        token_box = ttk.Frame(self.bedrock_inputs_frame, style="Card.TFrame")
+        token_box.pack(fill=tk.X, pady=(2, 8))
+
+        self.bedrock_token_entry = ttk.Entry(
+            token_box,
+            textvariable=self.aws_bearer_token_var,
+            show="*",
+            style="TEntry",
+        )
+        self.bedrock_token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self.toggle_bedrock_btn = ttk.Button(
+            token_box,
+            text="Show",
+            width=6,
+            command=self._toggle_bedrock_visibility,
+        )
+        self.toggle_bedrock_btn.pack(side=tk.LEFT, padx=(0, 6))
+
+        save_bedrock_btn = ttk.Button(
+            token_box,
+            text="Save .env",
+            command=self._save_bedrock_to_env,
+        )
+        save_bedrock_btn.pack(side=tk.LEFT)
+
+        # Region & Model ID in 2 columns
+        model_row = ttk.Frame(self.bedrock_inputs_frame, style="Card.TFrame")
+        model_row.pack(fill=tk.X, pady=(2, 2))
+
+        # Region column
+        reg_col = ttk.Frame(model_row, style="Card.TFrame")
+        reg_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Label(reg_col, text="AWS Region:", style="Card.TLabel").pack(anchor="w")
+        reg_combo = ttk.Combobox(
+            reg_col,
+            textvariable=self.aws_region_var,
+            values=["ap-south-1", "us-east-1", "us-west-2", "eu-central-1", "ap-southeast-1"],
+            style="TCombobox",
+        )
+        reg_combo.pack(fill=tk.X, pady=2)
+
+        # Model ID column
+        model_col = ttk.Frame(model_row, style="Card.TFrame")
+        model_col.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(model_col, text="Model ID:", style="Card.TLabel").pack(anchor="w")
+        ttk.Entry(
+            model_col,
+            textvariable=self.bedrock_model_id_var,
+            style="TEntry",
         ).pack(fill=tk.X, pady=2)
 
     def _build_categories_card(self, parent: ttk.Frame) -> None:
@@ -382,6 +478,82 @@ class DashboardTab(ttk.Frame):
         os.environ["GOOGLE_API_KEY"] = key
         messagebox.showinfo("Saved", "API key successfully saved to .env file.")
 
+    def _toggle_bedrock_visibility(self) -> None:
+        is_shown = self.show_bedrock_token_var.get()
+        if is_shown:
+            self.bedrock_token_entry.config(show="*")
+            self.toggle_bedrock_btn.config(text="Show")
+            self.show_bedrock_token_var.set(False)
+        else:
+            self.bedrock_token_entry.config(show="")
+            self.toggle_bedrock_btn.config(text="Hide")
+            self.show_bedrock_token_var.set(True)
+
+    def _save_bedrock_to_env(self) -> None:
+        token = self.aws_bearer_token_var.get().strip()
+        region = self.aws_region_var.get().strip() or "ap-south-1"
+        model_id = (
+            self.bedrock_model_id_var.get().strip()
+            or "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        )
+
+        if not token:
+            messagebox.showwarning(
+                "Bearer Token Missing",
+                "Please enter a Bedrock Bearer Token before saving.",
+            )
+            return
+
+        env_path = Path(".env")
+        lines: List[str] = []
+        keys_set = {
+            "AWS_BEARER_TOKEN_BEDROCK": False,
+            "AWS_REGION": False,
+            "LLM_MODEL_ID": False,
+        }
+
+        if env_path.exists():
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("AWS_BEARER_TOKEN_BEDROCK="):
+                        lines.append(f'AWS_BEARER_TOKEN_BEDROCK="{token}"\n')
+                        keys_set["AWS_BEARER_TOKEN_BEDROCK"] = True
+                    elif stripped.startswith("AWS_REGION="):
+                        lines.append(f'AWS_REGION="{region}"\n')
+                        keys_set["AWS_REGION"] = True
+                    elif stripped.startswith("LLM_MODEL_ID="):
+                        lines.append(f'LLM_MODEL_ID="{model_id}"\n')
+                        keys_set["LLM_MODEL_ID"] = True
+                    else:
+                        lines.append(line)
+
+        if not keys_set["AWS_BEARER_TOKEN_BEDROCK"]:
+            lines.append(f'AWS_BEARER_TOKEN_BEDROCK="{token}"\n')
+        if not keys_set["AWS_REGION"]:
+            lines.append(f'AWS_REGION="{region}"\n')
+        if not keys_set["LLM_MODEL_ID"]:
+            lines.append(f'LLM_MODEL_ID="{model_id}"\n')
+
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        os.environ["AWS_BEARER_TOKEN_BEDROCK"] = token
+        os.environ["AWS_REGION"] = region
+        os.environ["LLM_MODEL_ID"] = model_id
+        messagebox.showinfo(
+            "Saved", "AWS Bedrock configuration successfully saved to .env file."
+        )
+
+    def _on_toggle_enrichment(self) -> None:
+        enabled = self.enable_enrichment_var.get()
+        state = "normal" if enabled else "disabled"
+        for child in self.bedrock_inputs_frame.winfo_children():
+            try:
+                child.configure(state=state)
+            except Exception:
+                pass
+
     def _browse_locations(self) -> None:
         file_path = filedialog.askopenfilename(
             title="Select Locations CSV File",
@@ -508,6 +680,11 @@ class DashboardTab(ttk.Frame):
             max_workers=workers,
             max_qps=max_qps,
             selected_categories=selected_cats,
+            enable_enrichment=self.enable_enrichment_var.get(),
+            aws_region=self.aws_region_var.get().strip() or "ap-south-1",
+            aws_bearer_token=self.aws_bearer_token_var.get().strip() or None,
+            bedrock_model_id=self.bedrock_model_id_var.get().strip()
+            or "global.anthropic.claude-haiku-4-5-20251001-v1:0",
         )
 
         self.set_scraping_active(True)
