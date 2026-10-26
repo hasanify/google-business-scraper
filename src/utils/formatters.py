@@ -175,3 +175,34 @@ def sanitize_filename(name: str, max_length: int = 45) -> str:
     clean = re.sub(r"[^\w\s-]", "", name, flags=re.UNICODE)
     clean = re.sub(r"[-\s]+", "_", clean).strip("-_")
     return clean[:max_length] if clean else "location"
+
+
+def format_distance(distance_km: Any) -> str:
+    """Format geodesic distance up to 1 decimal place with appropriate unit (km or kms).
+
+    Examples:
+        0.1425 -> "0.1 km"
+        2.9123 -> "2.9 kms"
+        1.0    -> "1 km"
+        2.0    -> "2 kms"
+        0.0    -> "0 km"
+        1.5    -> "1.5 kms"
+
+    Args:
+        distance_km: Distance in kilometers as float, int, string, or None.
+
+    Returns:
+        Formatted distance string with unit (e.g. '2.9 kms' or '0.1 km').
+    """
+    if distance_km is None or distance_km == "":
+        return ""
+    try:
+        d = float(distance_km)
+    except (ValueError, TypeError):
+        return str(distance_km)
+
+    rounded = round(d, 1)
+    val_str = f"{int(rounded)}" if rounded == int(rounded) else f"{rounded:.1f}"
+    unit = "km" if rounded <= 1.0 else "kms"
+    return f"{val_str} {unit}"
+

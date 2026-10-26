@@ -144,6 +144,22 @@ class TestFormatters(unittest.TestCase):
         self.assertEqual(clean_text("   "), "")
         self.assertEqual(clean_text(",,, , -"), "")
 
+    def test_format_distance(self):
+        """Should format distance up to 1 decimal place with proper singular/plural units."""
+        from src.utils.formatters import format_distance
+
+        self.assertEqual(format_distance(0.1425), "0.1 km")
+        self.assertEqual(format_distance(0.1), "0.1 km")
+        self.assertEqual(format_distance(0.0), "0 km")
+        self.assertEqual(format_distance(1.0), "1 km")
+        self.assertEqual(format_distance(1.04), "1 km")
+        self.assertEqual(format_distance(1.52), "1.5 kms")
+        self.assertEqual(format_distance(2.9123), "2.9 kms")
+        self.assertEqual(format_distance(2.0), "2 kms")
+        self.assertEqual(format_distance("3.45"), "3.5 kms")
+        self.assertEqual(format_distance(None), "")
+        self.assertEqual(format_distance(""), "")
+
 
 
 class TestIO(unittest.TestCase):
@@ -378,6 +394,8 @@ class TestDualVariantGeneration(unittest.TestCase):
             # Prioritized WhatsApp mobile number (+91 98765 43210) over landline (+91 11 4767 4000)
             self.assertIn("98765", dedup_rows[0]["phone"])
             self.assertEqual(dedup_rows[0]["tag"], "test_hub")
+            self.assertIn("formatted_distance", dedup_rows[0])
+            self.assertIn("km", dedup_rows[0]["formatted_distance"])
 
 
 class TestBedrockEnricher(unittest.TestCase):

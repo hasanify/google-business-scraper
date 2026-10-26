@@ -24,7 +24,12 @@ from .api.rate_limiter import ThreadSafeRateLimiter
 from .config import DEFAULT_CONFIG, ScraperConfig
 from .constants import CSV_FIELDNAMES, DEDUP_CSV_FIELDNAMES, KEYWORD_GROUPS
 from .geo.vincenty import vincenty_km
-from .utils.formatters import clean_text, compress_opening_hours, sanitize_filename
+from .utils.formatters import (
+    clean_text,
+    compress_opening_hours,
+    format_distance,
+    sanitize_filename,
+)
 from .utils.io import ensure_output_dir, load_locations
 from .utils.whatsapp_phone import (
     extract_phone_candidates,
@@ -342,6 +347,7 @@ class BusinessScraper:
                                     "lat": r.get("lat", ""),
                                     "lng": r.get("lng", ""),
                                     "distance_km": r.get("distance_km", ""),
+                                    "formatted_distance": format_distance(r.get("distance_km", "")),
                                     "phone": r.get("phone", ""),
                                     "rating": r.get("rating", ""),
                                     "review_count": r_cnt,

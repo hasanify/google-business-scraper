@@ -38,6 +38,7 @@ DEDUP_CSV_FIELDNAMES: List[str] = [
     "lat",
     "lng",
     "distance_km",
+    "formatted_distance",
     "phone",
     "rating",
     "review_count",

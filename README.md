@@ -229,7 +229,8 @@ Files saved in the `_deduplicated` directory contain unique POIs filtered to val
 | `gmb_link` | Google Maps URL with Place ID | `https://www.google.com/maps/place/?q=place_id:...` |
 | `lat` | Place latitude | `28.564954` |
 | `lng` | Place longitude | `77.237361` |
-| `distance_km` | Geodesic distance from search center | `1.6169` |
+| `distance_km` | Raw geodesic distance from search center | `1.6169` |
+| `formatted_distance` | Formatted distance with unit (up to 1 decimal place) | `"1.6 kms"` |
 | `phone` | Validated contact phone number | `"+91 91673 79735"` |
 | `rating` | Average Google review rating | `4.8` |
 | `review_count` | Total count of Google reviews | `112` |
