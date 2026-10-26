@@ -2,6 +2,17 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+# [1.6.0](https://github.com/hasanify/google-business-scraper/compare/v1.5.0...v1.6.0) (2026-10-26)
+
+
+### Features
+
+* **gui:** add interactive location selection and manual location entry ([aaebad3](https://github.com/hasanify/google-business-scraper/commit/aaebad3900a41faf4a5431bf87ae67652cac93a6))
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 # [1.5.0](https://github.com/hasanify/google-business-scraper/compare/v1.4.0...v1.5.0) (2026-10-26)
 
 
