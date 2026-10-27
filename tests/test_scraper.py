@@ -559,5 +559,114 @@ class TestWhatsAppPhone(unittest.TestCase):
         self.assertEqual(link, "https://wa.me/919871864545")
 
 
+class TestDedupAndEnrichExisting(unittest.TestCase):
+    """Test standalone deduplication and AI enrichment of existing CSV files."""
+
+    def test_dedup_and_enrich_csv_file(self):
+        """Should filter out non-WhatsApp, deduplicate by place_id, and enrich records."""
+        from src.constants import DEDUP_CSV_FIELDNAMES
+        from src.scraper import dedup_and_enrich_csv_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_file = os.path.join(tmpdir, "location_01_Test_Location.csv")
+            out_file = os.path.join(tmpdir, "location_01_Test_Location_deduped.csv")
+
+            # Write raw test CSV
+            rows = [
+                {
+                    "sno": "1",
+                    "name": "Tata Motors Showroom - Jasper, South Ext",
+                    "address": "Ring Road, South Extension",
+                    "gmb_link": "https://www.google.com/maps/place/?q=place_id:ChIJ1111",
+                    "lat": "28.56",
+                    "lng": "77.22",
+                    "distance_km": "1.52",
+                    "phone": "+91 98718 64545",
+                    "rating": "4.8",
+                    "user_ratings_total": "120",
+                    "source_group": "automotive",
+                    "primary_type": "car_dealer",
+                    "opening_hours": "Mon-Sun 10:00-19:00",
+                },
+                # Duplicate of first place with landline added
+                {
+                    "sno": "2",
+                    "name": "Tata Motors Showroom - Jasper",
+                    "address": "Ring Road, South Extension",
+                    "gmb_link": "https://www.google.com/maps/place/?q=place_id:ChIJ1111",
+                    "lat": "28.56",
+                    "lng": "77.22",
+                    "distance_km": "1.52",
+                    "phone": "+91 11 4123 4567",
+                    "rating": "4.8",
+                    "user_ratings_total": "120",
+                    "source_group": "automotive",
+                    "primary_type": "car_dealer",
+                    "opening_hours": "Mon-Sun 10:00-19:00",
+                },
+                # Landline-only business (should be filtered out)
+                {
+                    "sno": "3",
+                    "name": "Only Landline Store",
+                    "address": "Connaught Place",
+                    "gmb_link": "https://www.google.com/maps/place/?q=place_id:ChIJ2222",
+                    "lat": "28.63",
+                    "lng": "77.21",
+                    "distance_km": "2.1",
+                    "phone": "+91 11 2345 6789",
+                    "rating": "4.0",
+                    "user_ratings_total": "50",
+                    "source_group": "shopping",
+                    "primary_type": "store",
+                    "opening_hours": "Mon-Sat 10:00-20:00",
+                },
+                # Missing review count (should be filtered out)
+                {
+                    "sno": "4",
+                    "name": "No Reviews Business",
+                    "address": "Nehru Place",
+                    "gmb_link": "https://www.google.com/maps/place/?q=place_id:ChIJ3333",
+                    "lat": "28.55",
+                    "lng": "77.25",
+                    "distance_km": "3.0",
+                    "phone": "+91 99999 12345",
+                    "rating": "",
+                    "user_ratings_total": "",
+                    "source_group": "services",
+                    "primary_type": "hair_salon",
+                    "opening_hours": "",
+                },
+            ]
+
+            import csv
+            fieldnames = [
+                "sno", "name", "address", "gmb_link", "lat", "lng", "distance_km",
+                "phone", "rating", "user_ratings_total", "source_group",
+                "primary_type", "opening_hours",
+            ]
+            with open(in_file, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(rows)
+
+            saved_count = dedup_and_enrich_csv_file(in_file, out_file)
+            self.assertEqual(saved_count, 1)
+
+            with open(out_file, "r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                self.assertEqual(reader.fieldnames, DEDUP_CSV_FIELDNAMES)
+                out_rows = list(reader)
+                self.assertEqual(len(out_rows), 1)
+                row = out_rows[0]
+                self.assertEqual(row["sno"], "1")
+                self.assertIn("Tata Motors Showroom", row["business_name"])
+                self.assertEqual(row["short_name"], "Tata Motors Showroom")
+                self.assertEqual(row["business_goal"], "more test drives")
+                self.assertEqual(row["formatted_distance"], "1.5 kms")
+                self.assertIn("98718", row["phone"])
+                self.assertEqual(row["tag"], "test_location")
+
+
 if __name__ == "__main__":
     unittest.main()
+

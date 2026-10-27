@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
         help="Clean text fields (names, addresses) and re-encode existing CSV files with UTF-8 BOM",
     )
     parser.add_argument(
+        "--dedup-existing",
+        action="store_true",
+        help="Deduplicate, filter WhatsApp mobile numbers, and AI-enrich existing raw CSV files",
+    )
+    parser.add_argument(
         "--gui",
         action="store_true",
         help="Launch the desktop graphical user interface (GUI)",
@@ -87,6 +92,23 @@ def main() -> None:
                 f"\nCleanup finished: Processed {summary['files_processed']} files, "
                 f"{summary['total_rows']} total rows, "
                 f"{summary['modified_rows']} modified rows.",
+                flush=True,
+            )
+            return
+
+        if args.dedup_existing:
+            out_dir = args.output_dir
+            dedup_dir = args.dedup_output_dir or f"{args.output_dir}_deduplicated"
+            config = ScraperConfig(
+                output_dir=out_dir,
+                dedup_output_dir=dedup_dir,
+            )
+            scraper = BusinessScraper(config)
+            print(f"Deduplicating and AI-enriching CSV files in '{out_dir}' -> '{dedup_dir}'...", flush=True)
+            summary = scraper.dedup_and_enrich_existing(input_dir=out_dir, output_dir=dedup_dir)
+            print(
+                f"\nDeduplication & enrichment complete: {summary['files_processed']} files processed, "
+                f"{summary['total_dedup_records']} total WhatsApp-verified enriched records saved.",
                 flush=True,
             )
             return

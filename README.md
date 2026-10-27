@@ -176,6 +176,13 @@ Run with custom parameters:
 python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./data/custom
 ```
 
+Deduplicate and AI-enrich existing raw CSV files:
+```bash
+python main.py --dedup-existing
+# or specify custom input and output folders:
+python main.py --dedup-existing --output-dir ./data/google --dedup-output-dir ./data/google_deduplicated
+```
+
 #### CLI Options
 
 | Flag | Default | Description |
@@ -188,6 +195,7 @@ python main.py --radius 5.0 --locations my_custom_locations.csv --output-dir ./d
 | `--workers` | Auto (CPU threads) | Number of concurrent worker threads (quota-safe default up to 8 threads, overrides allowed) |
 | `--max-qps` | `10.0` | Maximum queries-per-second across all threads combined (Google Cloud quota compliant) |
 | `--clean-existing` | `False` | Clean text fields (names, addresses) and re-encode existing CSV files with UTF-8 BOM |
+| `--dedup-existing` | `False` | Deduplicate, filter WhatsApp mobile numbers, and AI-enrich existing raw CSV files |
 
 ---
 

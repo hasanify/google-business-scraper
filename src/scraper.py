@@ -9,10 +9,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import os
 from pathlib import Path
+import re
 import signal
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from .api.bedrock_enricher import (
     BedrockEnricher,
@@ -547,3 +548,236 @@ class BusinessScraper:
             "summary": summary,
             "interrupted": self.stop_event.is_set(),
         })
+
+    def dedup_and_enrich_existing(
+        self,
+        input_dir: Optional[str] = None,
+        output_dir: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Deduplicate, filter WhatsApp mobile numbers, and AI-enrich existing raw CSV files.
+
+        Args:
+            input_dir: Source folder with raw CSV files (defaults to config.output_dir).
+            output_dir: Destination folder (defaults to config.dedup_output_dir).
+
+        Returns:
+            Summary dict containing execution metrics and processed file paths.
+        """
+        in_dir = input_dir or self.config.output_dir
+        out_dir = (
+            output_dir
+            or self.config.dedup_output_dir
+            or f"{in_dir.rstrip('/\\\\')}_deduplicated"
+        )
+        return dedup_and_enrich_directory(
+            input_dir=in_dir,
+            output_dir=out_dir,
+            enricher=self.enricher,
+            log_callback=self.log,
+        )
+
+
+def dedup_and_enrich_csv_file(
+    input_file: Union[str, Path],
+    output_file: Union[str, Path],
+    enricher: Optional[BedrockEnricher] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> int:
+    """Deduplicate, filter WhatsApp mobile numbers, and AI-enrich a single CSV file.
+
+    Args:
+        input_file: Path to source raw CSV file.
+        output_file: Path where deduplicated and enriched CSV will be saved.
+        enricher: Optional BedrockEnricher instance.
+        log_callback: Optional function for logging messages.
+
+    Returns:
+        Number of valid deduplicated places written to output_file.
+    """
+    in_path = Path(input_file)
+    out_path = Path(output_file)
+
+    if not in_path.exists():
+        if log_callback:
+            log_callback(f"[!] Input file '{input_file}' does not exist.")
+        return 0
+
+    stem = in_path.stem
+    clean_stem = re.sub(r"^location_\d+_", "", stem)
+    derived_tag = clean_stem.lower()
+
+    dedup_candidates_map: Dict[Any, Dict[str, Any]] = {}
+
+    with open(in_path, "r", encoding="utf-8-sig", errors="replace") as f_in:
+        reader = csv.DictReader(f_in)
+        for row in reader:
+            raw_name = clean_text(row.get("name") or row.get("business_name") or "", is_name=True)
+            raw_addr = clean_text(row.get("address") or "", is_name=False)
+            raw_reviews = row.get("review_count") or row.get("user_ratings_total")
+
+            has_reviews = bool(
+                raw_reviews is not None
+                and str(raw_reviews).strip() != ""
+                and str(raw_reviews).strip().lower() not in ("none", "null", "nan")
+            )
+            has_biz_name = bool(
+                raw_name
+                and raw_name.strip()
+                and raw_name.strip().lower() not in ("none", "null", "nan")
+            )
+
+            raw_phone = row.get("phone") or ""
+            extracted_cands = extract_phone_candidates(raw_phone)
+
+            if not (extracted_cands and has_reviews and has_biz_name):
+                continue
+
+            gmb = row.get("gmb_link") or ""
+            pid = ""
+            if "place_id:" in gmb:
+                pid = gmb.split("place_id:")[1].split("&")[0].strip()
+
+            dedup_key = pid or (raw_name.strip().lower(), raw_addr.strip().lower())
+
+            if dedup_key not in dedup_candidates_map:
+                rec = dict(row)
+                rec["name"] = raw_name
+                rec["address"] = raw_addr
+                rec["review_count"] = str(raw_reviews).strip()
+                rec["_phone_candidates"] = set(extracted_cands)
+                dedup_candidates_map[dedup_key] = rec
+            else:
+                dedup_candidates_map[dedup_key]["_phone_candidates"].update(extracted_cands)
+
+    valid_dedup_candidates: List[Dict[str, Any]] = []
+    for rec in dedup_candidates_map.values():
+        cands = list(rec.get("_phone_candidates", set()))
+        best_wa_phone = select_best_whatsapp_number(cands)
+        if not best_wa_phone:
+            continue
+        rec_copy = dict(rec)
+        rec_copy["phone"] = best_wa_phone
+        rec_copy.pop("_phone_candidates", None)
+        valid_dedup_candidates.append(rec_copy)
+
+    final_dedup_rows: List[Dict[str, Any]] = []
+    if valid_dedup_candidates:
+        if enricher and hasattr(enricher, "enrich_records"):
+            enriched_records = enricher.enrich_records(
+                valid_dedup_candidates,
+                batch_size=50,
+                log_callback=log_callback,
+            )
+        else:
+            enriched_records = []
+            for r in valid_dedup_candidates:
+                er = dict(r)
+                er["short_name"] = heuristic_short_name(er.get("name", ""))
+                er["business_goal"] = heuristic_business_goal(
+                    er.get("primary_type", ""), er.get("source_group", "")
+                )
+                enriched_records.append(er)
+
+        for r in enriched_records:
+            b_name = (r.get("name") or r.get("business_name") or "").strip()
+            s_name = (r.get("short_name") or "").strip()
+            b_goal = (r.get("business_goal") or "").strip()
+            r_cnt = str(r.get("review_count") or "").strip()
+
+            def _is_present(val: str) -> bool:
+                return bool(val and val.lower() not in ("none", "null", "nan"))
+
+            if (
+                _is_present(b_name)
+                and _is_present(s_name)
+                and _is_present(b_goal)
+                and _is_present(r_cnt)
+            ):
+                dist_km = r.get("distance_km", "")
+                row_tag = r.get("tag") or derived_tag
+                final_row = {
+                    "sno": len(final_dedup_rows) + 1,
+                    "whatsapp_name": b_name,
+                    "business_name": b_name,
+                    "short_name": s_name,
+                    "address": r.get("address", ""),
+                    "gmb_link": r.get("gmb_link", ""),
+                    "lat": r.get("lat", ""),
+                    "lng": r.get("lng", ""),
+                    "distance_km": dist_km,
+                    "formatted_distance": format_distance(dist_km),
+                    "phone": r.get("phone", ""),
+                    "rating": r.get("rating", ""),
+                    "review_count": r_cnt,
+                    "source_group": r.get("source_group", ""),
+                    "primary_type": r.get("primary_type", ""),
+                    "opening_hours": r.get("opening_hours", ""),
+                    "tag": row_tag,
+                    "business_goal": b_goal,
+                }
+                final_dedup_rows.append(final_row)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", newline="", encoding="utf-8-sig") as f_out:
+        writer = csv.DictWriter(f_out, fieldnames=DEDUP_CSV_FIELDNAMES)
+        writer.writeheader()
+        if final_dedup_rows:
+            writer.writerows(final_dedup_rows)
+        f_out.flush()
+
+    if log_callback:
+        log_callback(f"Saved {len(final_dedup_rows)} deduplicated & enriched places to '{out_path}'")
+
+    return len(final_dedup_rows)
+
+
+def dedup_and_enrich_directory(
+    input_dir: Union[str, Path],
+    output_dir: Union[str, Path],
+    enricher: Optional[BedrockEnricher] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    """Process all CSV files in input_dir, saving deduplicated and AI enriched CSVs to output_dir.
+
+    Args:
+        input_dir: Path to directory containing raw CSV files.
+        output_dir: Path to destination directory for deduplicated files.
+        enricher: Optional BedrockEnricher instance.
+        log_callback: Optional logging callback.
+
+    Returns:
+        Summary dict containing counts and file paths.
+    """
+    in_dir = Path(input_dir)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_files = sorted(in_dir.glob("*.csv"))
+    csv_files = [f for f in csv_files if not f.name.endswith("_deduped.csv")]
+
+    total_records = 0
+    details = []
+
+    for i, csv_file in enumerate(csv_files, start=1):
+        if log_callback:
+            log_callback(f"\n[{i:02d}/{len(csv_files):02d}] Processing '{csv_file.name}'...")
+        out_file = out_dir / csv_file.name
+        count = dedup_and_enrich_csv_file(
+            input_file=csv_file,
+            output_file=out_file,
+            enricher=enricher,
+            log_callback=log_callback,
+        )
+        total_records += count
+        details.append({
+            "input_file": str(csv_file),
+            "output_file": str(out_file),
+            "record_count": count,
+        })
+
+    return {
+        "files_processed": len(csv_files),
+        "total_dedup_records": total_records,
+        "details": details,
+    }
+
