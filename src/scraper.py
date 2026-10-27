@@ -564,10 +564,11 @@ class BusinessScraper:
             Summary dict containing execution metrics and processed file paths.
         """
         in_dir = input_dir or self.config.output_dir
+        cleaned_in_dir = str(in_dir).rstrip("/\\")
         out_dir = (
             output_dir
             or self.config.dedup_output_dir
-            or f"{in_dir.rstrip('/\\\\')}_deduplicated"
+            or f"{cleaned_in_dir}_deduplicated"
         )
         return dedup_and_enrich_directory(
             input_dir=in_dir,

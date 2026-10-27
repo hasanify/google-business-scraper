@@ -666,6 +666,63 @@ class TestDedupAndEnrichExisting(unittest.TestCase):
                 self.assertIn("98718", row["phone"])
                 self.assertEqual(row["tag"], "test_location")
 
+    def test_dedup_and_enrich_existing_method(self):
+        """Scraper.dedup_and_enrich_existing should process folder and default to _deduplicated suffix."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            raw_dir = os.path.join(tmp_dir, "raw_data")
+            os.makedirs(raw_dir, exist_ok=True)
+            in_file = os.path.join(raw_dir, "location_01.csv")
+
+            import csv
+            fieldnames = [
+                "sno", "name", "address", "gmb_link", "lat", "lng", "distance_km",
+                "phone", "rating", "user_ratings_total", "source_group",
+                "primary_type", "opening_hours",
+            ]
+            with open(in_file, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerow({
+                    "sno": "1",
+                    "name": "Test Motors",
+                    "address": "Delhi",
+                    "gmb_link": "https://maps.google.com/?q=place_id:ChIJ11",
+                    "lat": "28.5",
+                    "lng": "77.2",
+                    "distance_km": "1.0",
+                    "phone": "+91 98765 43210",
+                    "rating": "4.5",
+                    "user_ratings_total": "10",
+                    "source_group": "automotive",
+                    "primary_type": "car_dealer",
+                    "opening_hours": "",
+                })
+
+            cfg = ScraperConfig(output_dir=raw_dir)
+            scraper = BusinessScraper(cfg)
+            summary = scraper.dedup_and_enrich_existing()
+
+            self.assertEqual(summary["files_processed"], 1)
+            self.assertEqual(summary["total_dedup_records"], 1)
+            expected_dedup_dir = f"{raw_dir}_deduplicated"
+            self.assertTrue(os.path.isdir(expected_dedup_dir))
+
+    def test_no_fstring_backslash_for_python311_compatibility(self):
+        """Ensure no f-string expression parts contain backslashes, maintaining Python <= 3.11 compatibility."""
+        import ast
+        repo_root = Path(__file__).resolve().parent.parent
+        py_files = list(repo_root.glob("src/**/*.py")) + list(repo_root.glob("tests/**/*.py"))
+        violations = []
+        for py_file in py_files:
+            content = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(content, filename=str(py_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FormattedValue):
+                    segment = ast.get_source_segment(content, node.value)
+                    if segment and "\\" in segment:
+                        violations.append((str(py_file), node.lineno, segment))
+        self.assertEqual(violations, [], f"F-string backslashes break Python <= 3.11: {violations}")
+
 
 if __name__ == "__main__":
     unittest.main()
