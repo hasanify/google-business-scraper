@@ -2,6 +2,22 @@
 
 All notable changes to Google Business Scraper will be documented in this file.
 
+# [1.7.0](https://github.com/hasanify/google-business-scraper/compare/v1.6.0...v1.7.0) (2026-10-27)
+
+
+### Bug Fixes
+
+* **scraper:** resolve f-string backslash syntax error for python 3.11 compatibility ([3d86dd4](https://github.com/hasanify/google-business-scraper/commit/3d86dd45680fb94f41bede841de939c0b43bb89b))
+
+
+### Features
+
+* **scraper:** add standalone deduplication and AI enrichment CLI ([117f29e](https://github.com/hasanify/google-business-scraper/commit/117f29e662c713c88a230e368b6a5603c0fa6d14))
+
+# Changelog
+
+All notable changes to Google Business Scraper will be documented in this file.
+
 # [1.6.0](https://github.com/hasanify/google-business-scraper/compare/v1.5.0...v1.6.0) (2026-10-26)
 
 
